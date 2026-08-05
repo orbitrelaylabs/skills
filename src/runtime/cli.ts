@@ -150,7 +150,7 @@ function parseCliArguments(argv: readonly string[]): {
   ]);
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
-    if (argument === '--pretty') continue;
+    if (argument === '--' || argument === '--pretty') continue;
     if (!argument.startsWith('--')) throw new TypeError(`Unknown positional argument: ${argument}`);
     if (!allowedArguments.has(argument)) throw new TypeError(`Unknown argument: ${argument}`);
     const value = argv[index + 1];

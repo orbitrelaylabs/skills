@@ -127,18 +127,21 @@ describe('browser chain analysis client', () => {
         });
         if (input.url.includes('solscan.io')) {
           return {
-            data: {
-              block_id: 1,
-              fee: 5_000,
-              log_message: [],
-              parsed_instructions: [],
-              sol_bal_change: [{ address: solanaAddress, change_amount: 0 }],
-              status: 1,
-              token_bal_change: [],
-              trans_id: signature,
-              trans_time: 1_700_000_000,
+            body: {
+              data: {
+                block_id: 1,
+                fee: 5_000,
+                log_message: [],
+                parsed_instructions: [],
+                sol_bal_change: [{ address: solanaAddress, change_amount: 0 }],
+                status: 1,
+                token_bal_change: [],
+                trans_id: signature,
+                trans_time: 1_700_000_000,
+              },
+              success: true,
             },
-            success: true,
+            status: 200,
           };
         }
         if (input.fetchUrl !== undefined) {
@@ -193,8 +196,29 @@ describe('browser chain analysis client', () => {
       'eip155:988',
     ]);
     expect(calls).toHaveLength(6);
-    expect(calls.filter((call) => call.fetchUrl !== undefined)).toHaveLength(4);
-    expect(calls.filter((call) => call.expression !== undefined)).toHaveLength(2);
+    expect(calls.filter((call) => call.fetchUrl !== undefined)).toHaveLength(3);
+    expect(calls[0]?.expression).toContain('api-v2.solscan.io');
+    expect(calls.filter((call) => call.expression !== undefined)).toHaveLength(3);
+  });
+
+  it('returns insufficient data when Solscan cannot locate the transaction', async () => {
+    const client = createBrowserChainAnalysisClient({
+      pageEvaluator: async () => ({
+        body: {
+          errors: { code: 2001, message: 'Transaction not found' },
+          success: false,
+        },
+        status: 400,
+      }),
+    });
+
+    await expect(
+      client.getTransaction({ reference: `https://solscan.io/tx/${signature}` }),
+    ).resolves.toMatchObject({
+      family: 'solana',
+      status: 'insufficient_data',
+      transactionId: signature,
+    });
   });
 
   it('does not silently fall back when ego-browser is unavailable', async () => {

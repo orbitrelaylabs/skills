@@ -672,12 +672,55 @@ async function loadSolscanTransaction(input: {
 }): Promise<GetTransactionOutput> {
   const explorerUrl = `${SOLSCAN_ORIGIN}/tx/${input.reference.transactionId}`;
   const apiUrl = `${SOLSCAN_API_ORIGIN}/v2/transaction/detail?tx=${input.reference.transactionId}`;
-  const payload = await input.pageEvaluator({ ...input, fetchUrl: apiUrl, url: explorerUrl });
+  const response = await input.pageEvaluator({
+    ...input,
+    expression: createFixedBrowserFetchExpression(apiUrl),
+    url: explorerUrl,
+  });
+  if (!isRecord(response) || typeof response.status !== 'number' || !('body' in response)) {
+    throw new Error('Solscan browser response envelope was invalid.');
+  }
+  if (response.status === 400 && isSolscanTransactionNotFound(response.body)) {
+    return getTransactionOutputSchema.parse({
+      diagnostics: [
+        {
+          code: 'transaction_not_found',
+          message: 'Solscan did not return this transaction.',
+          severity: 'warning',
+        },
+      ],
+      explorerUrl,
+      family: 'solana',
+      network: input.reference.network,
+      status: 'insufficient_data',
+      summary: 'The fixed Solscan page could not locate this transaction.',
+      transactionId: input.reference.transactionId,
+    });
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Solscan browser request failed with HTTP ${response.status}.`);
+  }
+  const payload = response.body;
   const parsed = browserTransactionSchema.parse(normalizeSolscanPayload(payload));
   if (parsed.transactionId !== input.reference.transactionId) {
     throw new Error('Solscan browser response transaction ID conflicted with the request.');
   }
   return projectTransaction(parsed, explorerUrl);
+}
+
+function createFixedBrowserFetchExpression(url: string): string {
+  return `(async () => {
+    const response = await fetch(${JSON.stringify(url)}, {credentials:'include'});
+    const text = await response.text();
+    let body;
+    try { body = JSON.parse(text); } catch { body = text; }
+    return {status:response.status, body};
+  })()`;
+}
+
+function isSolscanTransactionNotFound(value: unknown): boolean {
+  if (!isRecord(value) || value.success !== false || !isRecord(value.errors)) return false;
+  return value.errors.code === 2001 && value.errors.message === 'Transaction not found';
 }
 
 function assertEvmTransactionMatch(actual: string, expected: string): void {

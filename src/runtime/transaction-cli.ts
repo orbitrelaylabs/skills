@@ -77,7 +77,7 @@ function parseArguments(argv: readonly string[]): { network?: string; reference:
   const allowed = new Set(['--network', '--reference']);
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
-    if (argument === '--pretty') continue;
+    if (argument === '--' || argument === '--pretty') continue;
     if (!allowed.has(argument)) throw new TypeError(`Unknown argument: ${argument}`);
     const value = argv[index + 1];
     if (value === undefined || value.startsWith('--'))

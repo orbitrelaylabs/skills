@@ -9,4 +9,13 @@ describe('public transaction Skill CLI', () => {
       runPublicTransactionCli({ argv: ['--reference', 'x', '--rpc', 'hidden'] }),
     ).rejects.toThrow('Unknown argument: --rpc');
   });
+
+  it('accepts the standard package-script argument separator', async () => {
+    await expect(
+      runPublicTransactionCli({
+        argv: ['--', '--reference', '0x123'],
+        env: { PATH: '' },
+      }),
+    ).rejects.toThrow('ego-browser');
+  });
 });

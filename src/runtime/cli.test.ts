@@ -39,4 +39,13 @@ describe('XXYY transaction diagnosis CLI', () => {
     }
     expect(output).toContain('Usage: diagnose.mjs --reference');
   });
+
+  it('accepts the standard package-script argument separator', async () => {
+    await expect(
+      runXxyyTransactionDiagnosisCli({
+        argv: ['--', '--reference', '0x123', '--screenshot', 'disabled'],
+        env: { PATH: '' },
+      }),
+    ).rejects.toThrow('ego-browser');
+  });
 });

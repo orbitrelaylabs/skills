@@ -1,47 +1,24 @@
 {
-  "name": "@orbitrelaylabs/xxyy-transaction-agent-kit",
+  "name": "@orbitrelaylabs/xxyy-transaction-skills",
   "version": "0.1.0",
-  "description": "Browser-only public transaction inspection and evidence-bounded XXYY trade diagnosis for agents",
+  "description": "Self-contained browser Skills for public transaction inspection and evidence-bounded XXYY trade diagnosis",
+  "private": true,
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit.git"
+    "url": "git+https://github.com/orbitrelaylabs/xxyy-transaction-skills.git"
   },
-  "homepage": "https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit#readme",
+  "homepage": "https://github.com/orbitrelaylabs/xxyy-transaction-skills#readme",
   "bugs": {
-    "url": "https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit/issues"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "files": [
-    "dist",
-    "skills",
-    "LICENSE",
-    "README.md",
-    "SECURITY.md"
-  ],
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./core": {
-      "types": "./dist/xxyy-diagnosis-core/index.d.ts",
-      "import": "./dist/xxyy-diagnosis-core/index.js"
-    },
-    "./runtime": {
-      "types": "./dist/runtime/index.d.ts",
-      "import": "./dist/runtime/index.js"
-    }
+    "url": "https://github.com/orbitrelaylabs/xxyy-transaction-skills/issues"
   },
   "bin": {
-    "onchain-inspect": "./dist/runtime/transaction-cli.js",
-    "xxyy-diagnose": "./dist/runtime/cli.js"
+    "onchain-inspect": "./skills/onchain-transaction-inspector/scripts/inspect.mjs",
+    "xxyy-diagnose": "./skills/xxyy-transaction-diagnosis/scripts/diagnose.mjs"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && pnpm skills:build",
+    "build": "pnpm skills:build",
     "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm build",
     "format": "prettier --write \"**/*.{ts,mjs,json,md,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,mjs,json,md,yml,yaml}\"",

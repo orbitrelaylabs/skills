@@ -51,8 +51,7 @@
     "skills:build": "pnpm skills:build:onchain && pnpm skills:build:xxyy && node scripts/normalize-bundles.mjs",
     "skills:build:onchain": "esbuild src/runtime/transaction-cli.ts --bundle --platform=node --format=esm --target=node24 --tree-shaking=true --legal-comments=none --outfile=skills/onchain-transaction-inspector/scripts/inspect.mjs",
     "skills:build:xxyy": "esbuild src/runtime/cli.ts --bundle --platform=node --format=esm --target=node24 --tree-shaking=true --legal-comments=none --outfile=skills/xxyy-transaction-diagnosis/scripts/diagnose.mjs",
-    "xxyy:diagnose": "tsx src/runtime/cli.ts",
-    "prepack": "pnpm build"
+    "xxyy:diagnose": "tsx src/runtime/cli.ts"
   },
   "dependencies": {
     "zod": "^4.4.3"

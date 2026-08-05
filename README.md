@@ -38,6 +38,8 @@ pnpm install --frozen-lockfile
 pnpm check
 ```
 
+Before publishing an npm release, run `pnpm check` and `pnpm build`; compiled `dist/` artifacts are committed so GitHub dependencies install without executing lifecycle scripts.
+
 ## SDK
 
 Basic transaction inspection:

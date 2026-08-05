@@ -18,6 +18,11 @@ describe('XXYY transaction diagnosis CLI', () => {
     await expect(
       runXxyyTransactionDiagnosisCli({ argv: ['--reference', '0x123', '--rpc', 'hidden'] }),
     ).rejects.toThrow('Unknown argument: --rpc');
+    await expect(
+      runXxyyTransactionDiagnosisCli({
+        argv: ['--reference', '0x123', '--screenshot', 'sometimes'],
+      }),
+    ).rejects.toThrow('--screenshot must be disabled or required');
   });
 
   it('prints usage without starting the runtime', async () => {

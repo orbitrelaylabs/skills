@@ -17665,23 +17665,14 @@ async function runXxyyTransactionDiagnosisCli(options = {}) {
   const parsed = parseCliArguments(argv);
   const egoBrowserExecutable = await resolveEgoBrowserExecutable(env.PATH);
   if (egoBrowserExecutable === void 0) throw new EgoBrowserUnavailableError();
-  const chromeExecutable = await resolveBrowserChromeExecutable(
-    env.XXYY_SCREENSHOT_CHROME_EXECUTABLE
-  );
-  if (chromeExecutable === void 0) {
-    throw new TypeError("Chrome or Chromium is required for XXYY transaction diagnosis.");
-  }
   const stateDirectory = path3.join(homedir(), ".xxyy");
   const profileDirectory = path3.resolve(
     env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim() || path3.join(stateDirectory, "browser-profile")
   );
-  const artifactDirectory = path3.resolve(
+  const artifactDirectory = parsed.screenshot === "disabled" ? void 0 : path3.resolve(
     parsed.outputDirectory ?? env.XXYY_SCREENSHOT_DIRECTORY?.trim() ?? path3.join(stateDirectory, "evidence")
   );
-  await Promise.all([
-    mkdir3(profileDirectory, { mode: 488, recursive: true }),
-    mkdir3(artifactDirectory, { mode: 488, recursive: true })
-  ]);
+  const screenshotProvider = artifactDirectory === void 0 ? void 0 : await createCliScreenshotProvider({ artifactDirectory, env, profileDirectory });
   const chainAnalysis = createBrowserChainAnalysisClient({
     pageEvaluator: createEgoBrowserPageEvaluator({
       command: egoBrowserExecutable,
@@ -17701,11 +17692,7 @@ async function runXxyyTransactionDiagnosisCli(options = {}) {
         ),
         version: "1.0.0"
       },
-      screenshotProvider: createChromeXxyyScreenshotProvider({
-        artifactDirectory,
-        chromeExecutable,
-        profileDirectory: path3.join(profileDirectory, "screenshots")
-      })
+      ...screenshotProvider === void 0 ? {} : { screenshotProvider }
     });
     const output = await service.diagnoseXxyyTransaction(
       diagnoseXxyyTransactionInputSchema.parse({
@@ -17719,7 +17706,7 @@ async function runXxyyTransactionDiagnosisCli(options = {}) {
     return {
       ...output,
       runtimeVersion: XXYY_TRANSACTION_DIAGNOSIS_RUNTIME_VERSION,
-      ...artifact === void 0 ? {} : {
+      ...artifact === void 0 || artifactDirectory === void 0 ? {} : {
         screenshotEvidence: {
           ...output.screenshotEvidence,
           artifact: {
@@ -17770,6 +17757,7 @@ function parseCliArguments(argv) {
     "--network",
     "--output-dir",
     "--reference",
+    "--screenshot",
     "--swap-index"
   ]);
   for (let index = 0; index < argv.length; index += 1) {
@@ -17800,13 +17788,35 @@ function parseCliArguments(argv) {
   }
   const network = values.get("--network");
   const outputDirectory = values.get("--output-dir");
+  const screenshot = values.get("--screenshot") ?? "required";
+  if (screenshot !== "disabled" && screenshot !== "required") {
+    throw new TypeError("--screenshot must be disabled or required.");
+  }
   return {
     checks,
     ...network === void 0 ? {} : { network },
     ...outputDirectory === void 0 ? {} : { outputDirectory },
     reference,
+    screenshot,
     ...swapIndex === void 0 ? {} : { swapIndex }
   };
+}
+async function createCliScreenshotProvider(input) {
+  const chromeExecutable = await resolveBrowserChromeExecutable(
+    input.env.XXYY_SCREENSHOT_CHROME_EXECUTABLE
+  );
+  if (chromeExecutable === void 0) {
+    throw new TypeError("Chrome or Chromium is required when screenshots are enabled.");
+  }
+  await Promise.all([
+    mkdir3(input.profileDirectory, { mode: 488, recursive: true }),
+    mkdir3(input.artifactDirectory, { mode: 488, recursive: true })
+  ]);
+  return createChromeXxyyScreenshotProvider({
+    artifactDirectory: input.artifactDirectory,
+    chromeExecutable,
+    profileDirectory: path3.join(input.profileDirectory, "screenshots")
+  });
 }
 function parseRelativeLiquidityPpm(value) {
   const parsed = Number(value ?? "100000");
@@ -17824,6 +17834,7 @@ function usage() {
     "  --network <network>      Required only when a bare hash is ambiguous",
     "  --swap-index <index>     Select one swap from a multi-swap transaction",
     "  --output-dir <path>      Evidence image directory (default: ~/.xxyy/evidence)",
+    "  --screenshot <mode>      required (default) or disabled",
     "  --pretty                 Pretty-print the JSON result"
   ].join("\n");
 }

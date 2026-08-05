@@ -35,25 +35,22 @@ export async function runXxyyTransactionDiagnosisCli(
   const parsed = parseCliArguments(argv);
   const egoBrowserExecutable = await resolveEgoBrowserExecutable(env.PATH);
   if (egoBrowserExecutable === undefined) throw new EgoBrowserUnavailableError();
-  const chromeExecutable = await resolveBrowserChromeExecutable(
-    env.XXYY_SCREENSHOT_CHROME_EXECUTABLE,
-  );
-  if (chromeExecutable === undefined) {
-    throw new TypeError('Chrome or Chromium is required for XXYY transaction diagnosis.');
-  }
   const stateDirectory = path.join(homedir(), '.xxyy');
   const profileDirectory = path.resolve(
     env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim() || path.join(stateDirectory, 'browser-profile'),
   );
-  const artifactDirectory = path.resolve(
-    parsed.outputDirectory ??
-      env.XXYY_SCREENSHOT_DIRECTORY?.trim() ??
-      path.join(stateDirectory, 'evidence'),
-  );
-  await Promise.all([
-    mkdir(profileDirectory, { mode: 0o750, recursive: true }),
-    mkdir(artifactDirectory, { mode: 0o750, recursive: true }),
-  ]);
+  const artifactDirectory =
+    parsed.screenshot === 'disabled'
+      ? undefined
+      : path.resolve(
+          parsed.outputDirectory ??
+            env.XXYY_SCREENSHOT_DIRECTORY?.trim() ??
+            path.join(stateDirectory, 'evidence'),
+        );
+  const screenshotProvider =
+    artifactDirectory === undefined
+      ? undefined
+      : await createCliScreenshotProvider({ artifactDirectory, env, profileDirectory });
   const chainAnalysis = createBrowserChainAnalysisClient({
     pageEvaluator: createEgoBrowserPageEvaluator({
       command: egoBrowserExecutable,
@@ -75,11 +72,7 @@ export async function runXxyyTransactionDiagnosisCli(
         ),
         version: '1.0.0',
       },
-      screenshotProvider: createChromeXxyyScreenshotProvider({
-        artifactDirectory,
-        chromeExecutable,
-        profileDirectory: path.join(profileDirectory, 'screenshots'),
-      }),
+      ...(screenshotProvider === undefined ? {} : { screenshotProvider }),
     });
     const output = await service.diagnoseXxyyTransaction(
       diagnoseXxyyTransactionInputSchema.parse({
@@ -93,7 +86,7 @@ export async function runXxyyTransactionDiagnosisCli(
     return {
       ...output,
       runtimeVersion: XXYY_TRANSACTION_DIAGNOSIS_RUNTIME_VERSION,
-      ...(artifact === undefined
+      ...(artifact === undefined || artifactDirectory === undefined
         ? {}
         : {
             screenshotEvidence: {
@@ -143,6 +136,7 @@ function parseCliArguments(argv: readonly string[]): {
   network?: string;
   outputDirectory?: string;
   reference: string;
+  screenshot: 'disabled' | 'required';
   swapIndex?: number;
 } {
   const values = new Map<string, string>();
@@ -151,6 +145,7 @@ function parseCliArguments(argv: readonly string[]): {
     '--network',
     '--output-dir',
     '--reference',
+    '--screenshot',
     '--swap-index',
   ]);
   for (let index = 0; index < argv.length; index += 1) {
@@ -188,13 +183,40 @@ function parseCliArguments(argv: readonly string[]): {
   }
   const network = values.get('--network');
   const outputDirectory = values.get('--output-dir');
+  const screenshot = values.get('--screenshot') ?? 'required';
+  if (screenshot !== 'disabled' && screenshot !== 'required') {
+    throw new TypeError('--screenshot must be disabled or required.');
+  }
   return {
     checks,
     ...(network === undefined ? {} : { network }),
     ...(outputDirectory === undefined ? {} : { outputDirectory }),
     reference,
+    screenshot,
     ...(swapIndex === undefined ? {} : { swapIndex }),
   };
+}
+
+async function createCliScreenshotProvider(input: {
+  artifactDirectory: string;
+  env: NodeJS.ProcessEnv;
+  profileDirectory: string;
+}) {
+  const chromeExecutable = await resolveBrowserChromeExecutable(
+    input.env.XXYY_SCREENSHOT_CHROME_EXECUTABLE,
+  );
+  if (chromeExecutable === undefined) {
+    throw new TypeError('Chrome or Chromium is required when screenshots are enabled.');
+  }
+  await Promise.all([
+    mkdir(input.profileDirectory, { mode: 0o750, recursive: true }),
+    mkdir(input.artifactDirectory, { mode: 0o750, recursive: true }),
+  ]);
+  return createChromeXxyyScreenshotProvider({
+    artifactDirectory: input.artifactDirectory,
+    chromeExecutable,
+    profileDirectory: path.join(input.profileDirectory, 'screenshots'),
+  });
 }
 
 function parseRelativeLiquidityPpm(value: string | undefined): number {
@@ -214,6 +236,7 @@ function usage(): string {
     '  --network <network>      Required only when a bare hash is ambiguous',
     '  --swap-index <index>     Select one swap from a multi-swap transaction',
     '  --output-dir <path>      Evidence image directory (default: ~/.xxyy/evidence)',
+    '  --screenshot <mode>      required (default) or disabled',
     '  --pretty                 Pretty-print the JSON result',
   ].join('\n');
 }

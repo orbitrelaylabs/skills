@@ -1,5 +1,5 @@
 {
-  "name": "@orbitrelaylabs/xxyy-transaction-skills",
+  "name": "@orbitrelaylabs/skills",
   "version": "0.1.0",
   "description": "Self-contained browser Skills for public transaction inspection and evidence-bounded XXYY trade diagnosis",
   "private": true,
@@ -7,11 +7,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/orbitrelaylabs/xxyy-transaction-skills.git"
+    "url": "git+https://github.com/orbitrelaylabs/skills.git"
   },
-  "homepage": "https://github.com/orbitrelaylabs/xxyy-transaction-skills#readme",
+  "homepage": "https://github.com/orbitrelaylabs/skills#readme",
   "bugs": {
-    "url": "https://github.com/orbitrelaylabs/xxyy-transaction-skills/issues"
+    "url": "https://github.com/orbitrelaylabs/skills/issues"
   },
   "bin": {
     "onchain-inspect": "./skills/onchain-transaction-inspector/scripts/inspect.mjs",

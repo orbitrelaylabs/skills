@@ -1,6 +1,6 @@
-# XXYY Transaction Skills
+# Skills
 
-Two self-contained, browser-only Skills for inspecting public transactions and diagnosing XXYY trades. Each Skill includes its own executable JSON CLI, so an agent can integrate it without an SDK, RPC provider, daemon, database, or companion service.
+Orbit Relay Labs' collection of self-contained agent Skills. The repository currently includes two browser-only Skills for inspecting public transactions and diagnosing XXYY trades. Each Skill includes its own executable JSON CLI, so an agent can integrate it without an SDK, RPC provider, daemon, database, or companion service.
 
 ## Skills
 
@@ -52,7 +52,7 @@ The diagnosis Skill requires its verified screenshot by default. A host that can
 The repository package is private and intentionally exposes no JavaScript imports. Its `bin` entries only provide a convenient GitHub-dependency bridge for existing hosts:
 
 ```bash
-pnpm add github:orbitrelaylabs/xxyy-transaction-skills
+pnpm add github:orbitrelaylabs/skills
 pnpm exec onchain-inspect --reference '<Explorer URL>'
 pnpm exec xxyy-diagnose --reference '<Explorer URL>' --checks sandwich,pool
 ```

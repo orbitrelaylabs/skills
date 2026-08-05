@@ -46,7 +46,6 @@
     "format": "prettier --write \"**/*.{ts,mjs,json,md,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,mjs,json,md,yml,yaml}\"",
     "onchain:inspect": "tsx src/runtime/transaction-cli.ts",
-    "prepare": "pnpm build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "skills:build": "pnpm skills:build:onchain && pnpm skills:build:xxyy && node scripts/normalize-bundles.mjs",

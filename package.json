@@ -1,0 +1,73 @@
+{
+  "name": "@orbitrelaylabs/xxyy-transaction-agent-kit",
+  "version": "0.1.0",
+  "description": "Browser-only public transaction inspection and evidence-bounded XXYY trade diagnosis for agents",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit.git"
+  },
+  "homepage": "https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit#readme",
+  "bugs": {
+    "url": "https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "LICENSE",
+    "README.md",
+    "SECURITY.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/xxyy-diagnosis-core/index.d.ts",
+      "import": "./dist/xxyy-diagnosis-core/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js"
+    }
+  },
+  "bin": {
+    "onchain-inspect": "./dist/runtime/transaction-cli.js",
+    "xxyy-diagnose": "./dist/runtime/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && pnpm skills:build",
+    "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm build",
+    "format": "prettier --write \"**/*.{ts,mjs,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,mjs,json,md,yml,yaml}\"",
+    "onchain:inspect": "tsx src/runtime/transaction-cli.ts",
+    "prepare": "pnpm build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "skills:build": "pnpm skills:build:onchain && pnpm skills:build:xxyy && node scripts/normalize-bundles.mjs",
+    "skills:build:onchain": "esbuild src/runtime/transaction-cli.ts --bundle --platform=node --format=esm --target=node24 --tree-shaking=true --legal-comments=none --outfile=skills/onchain-transaction-inspector/scripts/inspect.mjs",
+    "skills:build:xxyy": "esbuild src/runtime/cli.ts --bundle --platform=node --format=esm --target=node24 --tree-shaking=true --legal-comments=none --outfile=skills/xxyy-transaction-diagnosis/scripts/diagnose.mjs",
+    "xxyy:diagnose": "tsx src/runtime/cli.ts",
+    "prepack": "pnpm build"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.0",
+    "prettier": "^3.8.3",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "engines": {
+    "node": ">=24.16.0"
+  },
+  "packageManager": "pnpm@11.17.0"
+}

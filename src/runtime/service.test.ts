@@ -19,6 +19,7 @@ const evmTransactionHash = `0x${'1'.repeat(64)}`;
 const evmActor = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const evmPool = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const evmToken = '0x1111111111111111111111111111111111111111';
+const evmV4PoolId = `0x${'c'.repeat(64)}`;
 
 function transactionOutput() {
   return {
@@ -74,6 +75,13 @@ function evmTransactionOutput() {
           sourceUrl: `https://bscscan.com/tx/${evmTransactionHash}`,
           structuredData: {
             accountAddresses: [evmActor, evmPool],
+            swapPools: [
+              {
+                emitterAddress: evmPool,
+                logIndex: 970,
+                poolIdentifier: evmV4PoolId,
+              },
+            ],
             tokenAddresses: [evmToken],
           },
           supports: ['browser_transaction_facts'],
@@ -194,6 +202,14 @@ describe('createXxyyTransactionDiagnosisService', () => {
     expect(getTransaction).toHaveBeenCalledTimes(1);
     expect(result.surroundingTrades).toEqual([
       expect.objectContaining({ blockNumber: '113369790', chainStatus: 'resolved' }),
+    ]);
+    expect(result.executionPools).toEqual([
+      {
+        emitterAddress: evmPool,
+        logIndex: 970,
+        poolIdentifier: evmV4PoolId,
+        source: 'explorer_event_log',
+      },
     ]);
     expect(result.sandwichAssessment).toMatchObject({
       verdict: 'insufficient_data',

@@ -95,6 +95,17 @@ const browserEvmTransactionSchema = z
     from: z.string(),
     hash: z.string(),
     rawInput: z.string(),
+    swapPools: z
+      .array(
+        z
+          .object({
+            emitterAddress: z.string().regex(/^0x[0-9a-f]{40}$/iu),
+            logIndex: z.number().int().nonnegative(),
+            poolIdentifier: z.string().regex(/^0x(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu),
+          })
+          .strict(),
+      )
+      .max(128),
     status: z.enum(['reverted', 'success', 'unknown']),
     timestamp: z.string(),
     to: z.string().nullable(),
@@ -439,6 +450,7 @@ async function loadBlockscoutTransaction(input: {
     from,
     hash: raw.hash,
     rawInput: typeof raw.raw_input === 'string' ? raw.raw_input : '0x',
+    swapPools: [],
     status:
       raw.status === 'ok' || raw.result === 'success'
         ? 'success'
@@ -534,10 +546,29 @@ export function createScanPageTransactionExpression(): string {
     const targetTokenLinks = actionTokenLinks.length > 0
       ? [...new Set(actionTokenLinks)].slice(0, 1)
       : [...new Set([...actorReceivedTokens, ...tokenLinks, ...textAddresses])];
+    const eventLogRows = [...document.querySelectorAll('#eventlog-tab-content [id^="logI_"], [id^="logI_"]')];
+    const eventLogTab = document.querySelector?.('#eventlog-tab');
+    const eventLogTabActive = eventLogTab?.getAttribute('aria-selected') === 'true' || eventLogTab?.classList?.contains('active');
+    if (eventLogTab && eventLogRows.length === 0 && !eventLogTabActive) {
+      eventLogTab.click();
+      return null;
+    }
+    const swapPools = eventLogRows.flatMap((row) => {
+      const rowText = (row.textContent || '').replace(/\\r/g, '').trim();
+      if (!/(?:^|\\s)Name\\s*Swap\\s*\\(/i.test(rowText)) return [];
+      const logIndex = Number((row.getAttribute('id') || '').match(/^logI_(\\d+)$/i)?.[1]);
+      const emitterAddress = [...row.querySelectorAll('a[href*="/address/0x"]')]
+        .map((anchor) => (anchor.getAttribute('href') || '').match(/\\/address\\/(0x[0-9a-f]{40})/i)?.[1])
+        .find(Boolean) || rowText.match(/(?:^|\\s)Address\\s+(0x[0-9a-f]{40})/i)?.[1];
+      const poolId = rowText.match(/:\\s*id\\s+DecDecode\\s+Hex\\s+(?:0x)?([0-9a-f]{64})/i)?.[1];
+      if (!Number.isSafeInteger(logIndex) || !emitterAddress) return [];
+      return [{emitterAddress, logIndex, poolIdentifier:poolId ? '0x' + poolId : emitterAddress}];
+    });
     if (!hash || !block || (!fromMatch && addressLinks.length === 0)) return null;
     return {
-      accountAddresses:[...new Set([fromMatch || addressLinks[0], toMatch || addressLinks[1]].filter(Boolean))], blockNumber:block, feeWei:toWei(feeEth),
+      accountAddresses:[...new Set([fromMatch || addressLinks[0], toMatch || addressLinks[1], ...swapPools.map((pool) => pool.poolIdentifier)].filter(Boolean))], blockNumber:block, feeWei:toWei(feeEth),
       ...(failureReason ? {failureReason} : {}), from:fromMatch || addressLinks[0], hash, rawInput:'0x',
+      swapPools,
       status:/success|成功/i.test(statusText)?'success':reverted?'reverted':'unknown',
       timestamp:unix ? new Date(Number(unix)*1000).toISOString() : timestampText ? new Date(timestampText.replace('+UTC','UTC')).toISOString() : new Date().toISOString(),
       to:toMatch || addressLinks[1] || null, tokenAddresses:targetTokenLinks, tokenTransfers:[], valueWei:toWei(valueEth)
@@ -574,6 +605,7 @@ function projectEvmBrowserTransaction(
         structuredData: {
           accountAddresses: parsed.accountAddresses,
           ...(parsed.failureReason === undefined ? {} : { failureReason: parsed.failureReason }),
+          swapPools: parsed.swapPools,
           tokenAddresses: parsed.tokenAddresses,
         },
         supports: [findingId],

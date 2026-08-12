@@ -72,9 +72,19 @@ export const xxyySurroundingTradeSchema = xxyyContextTradeSchema
   })
   .strict();
 
+export const xxyyExecutionPoolSchema = z
+  .object({
+    emitterAddress: z.string().trim().min(1).max(256),
+    logIndex: z.number().int().nonnegative(),
+    poolIdentifier: z.string().trim().min(1).max(256),
+    source: z.literal('explorer_event_log'),
+  })
+  .strict();
+
 export const diagnoseXxyyTransactionOutputSchema = z
   .object({
     checks: z.array(xxyyDiagnosisCheckSchema).min(1).max(2),
+    executionPools: z.array(xxyyExecutionPoolSchema).max(128).optional(),
     market: xxyyTradeLookupResultSchema.optional(),
     poolAssessment: xxyyPoolAssessmentSchema.optional(),
     sandwichAssessment: xxyySandwichAssessmentSchema.optional(),
@@ -92,6 +102,7 @@ export type DiagnoseXxyyTransactionOutput = z.output<typeof diagnoseXxyyTransact
 export type XxyyScreenshotArtifact = z.output<typeof xxyyScreenshotArtifactSchema>;
 export type XxyyScreenshotEvidence = z.output<typeof xxyyScreenshotEvidenceSchema>;
 export type XxyySurroundingTrade = z.output<typeof xxyySurroundingTradeSchema>;
+export type XxyyExecutionPool = z.output<typeof xxyyExecutionPoolSchema>;
 
 export interface XxyyTransactionDiagnosisHandler {
   diagnoseXxyyTransaction(

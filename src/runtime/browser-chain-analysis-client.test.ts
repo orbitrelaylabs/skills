@@ -76,6 +76,57 @@ describe('browser chain analysis client', () => {
     expect(value.failureReason).toBe("Fail with Custom Error 'SafeTransferFailed ()'");
   });
 
+  it('extracts V4 pool identifiers from scan Explorer Swap event logs', () => {
+    const hash = `0x${'3'.repeat(64)}`;
+    const from = `0x${'a'.repeat(40)}`;
+    const to = `0x${'b'.repeat(40)}`;
+    const emitter = `0x${'c'.repeat(40)}`;
+    const poolId = '1E66E233CBEC7CC091F16DFA1FE19130D9853DD3DDE9BAA308A9B8A4C81658F5';
+    const eventRow = {
+      getAttribute: (name: string) => (name === 'id' ? 'logI_970' : null),
+      querySelectorAll: () => [
+        { getAttribute: () => `/address/${emitter}`, parentElement: null, textContent: emitter },
+      ],
+      textContent: `Address ${emitter}\nNameSwap (index_topic_1 bytes32 id) View Source Topics0 0x${'f'.repeat(64)} 1: id DecDecode Hex ${poolId}`,
+    };
+    const innerText = [
+      'Status:',
+      'Success',
+      'Block: 115509048',
+      '(1786539681)',
+      'From:',
+      from,
+      'To:',
+      to,
+      'Value: 0.5135 BNB',
+      'Transaction Fee: 0.0006829536 BNB',
+    ].join('\n');
+    const value = Function(
+      'document',
+      'location',
+      `return ${createScanPageTransactionExpression()}`,
+    )(
+      {
+        body: { innerText },
+        querySelectorAll: (selector: string) => (selector.includes('logI_') ? [eventRow] : []),
+        title: 'Bsc Transaction Hash',
+      },
+      { origin: 'https://bscscan.com', pathname: `/tx/${hash}` },
+    ) as {
+      accountAddresses: string[];
+      swapPools: Array<{ emitterAddress: string; logIndex: number; poolIdentifier: string }>;
+    };
+
+    expect(value.swapPools).toEqual([
+      {
+        emitterAddress: emitter,
+        logIndex: 970,
+        poolIdentifier: `0x${poolId}`,
+      },
+    ]);
+    expect(value.accountAddresses).toContain(`0x${poolId}`);
+  });
+
   it('classifies a hard scan block as interactive verification', async () => {
     const client = createBrowserChainAnalysisClient({
       pageEvaluator: async () => ({ blocked: true }),
@@ -99,6 +150,7 @@ describe('browser chain analysis client', () => {
         from: address,
         hash: `0x${'2'.repeat(64)}`,
         rawInput: '0x',
+        swapPools: [],
         status: 'success',
         timestamp: '2026-08-05T00:00:00.000Z',
         to: address,
@@ -165,6 +217,7 @@ describe('browser chain analysis client', () => {
           from: evmAddress,
           hash: evmHash,
           rawInput: '0x',
+          swapPools: [],
           status: 'success',
           timestamp: '2026-08-05T00:00:00.000Z',
           to: evmAddress,

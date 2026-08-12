@@ -16006,6 +16006,13 @@ var browserEvmTransactionSchema = external_exports.object({
   from: external_exports.string(),
   hash: external_exports.string(),
   rawInput: external_exports.string(),
+  swapPools: external_exports.array(
+    external_exports.object({
+      emitterAddress: external_exports.string().regex(/^0x[0-9a-f]{40}$/iu),
+      logIndex: external_exports.number().int().nonnegative(),
+      poolIdentifier: external_exports.string().regex(/^0x(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu)
+    }).strict()
+  ).max(128),
   status: external_exports.enum(["reverted", "success", "unknown"]),
   timestamp: external_exports.string(),
   to: external_exports.string().nullable(),
@@ -16260,6 +16267,7 @@ async function loadBlockscoutTransaction(input) {
     from,
     hash: raw.hash,
     rawInput: typeof raw.raw_input === "string" ? raw.raw_input : "0x",
+    swapPools: [],
     status: raw.status === "ok" || raw.result === "success" ? "success" : raw.status === "error" || raw.result === "error" ? "reverted" : "unknown",
     timestamp: raw.timestamp,
     to,
@@ -16342,10 +16350,29 @@ function createScanPageTransactionExpression() {
     const targetTokenLinks = actionTokenLinks.length > 0
       ? [...new Set(actionTokenLinks)].slice(0, 1)
       : [...new Set([...actorReceivedTokens, ...tokenLinks, ...textAddresses])];
+    const eventLogRows = [...document.querySelectorAll('#eventlog-tab-content [id^="logI_"], [id^="logI_"]')];
+    const eventLogTab = document.querySelector?.('#eventlog-tab');
+    const eventLogTabActive = eventLogTab?.getAttribute('aria-selected') === 'true' || eventLogTab?.classList?.contains('active');
+    if (eventLogTab && eventLogRows.length === 0 && !eventLogTabActive) {
+      eventLogTab.click();
+      return null;
+    }
+    const swapPools = eventLogRows.flatMap((row) => {
+      const rowText = (row.textContent || '').replace(/\\r/g, '').trim();
+      if (!/(?:^|\\s)Name\\s*Swap\\s*\\(/i.test(rowText)) return [];
+      const logIndex = Number((row.getAttribute('id') || '').match(/^logI_(\\d+)$/i)?.[1]);
+      const emitterAddress = [...row.querySelectorAll('a[href*="/address/0x"]')]
+        .map((anchor) => (anchor.getAttribute('href') || '').match(/\\/address\\/(0x[0-9a-f]{40})/i)?.[1])
+        .find(Boolean) || rowText.match(/(?:^|\\s)Address\\s+(0x[0-9a-f]{40})/i)?.[1];
+      const poolId = rowText.match(/:\\s*id\\s+DecDecode\\s+Hex\\s+(?:0x)?([0-9a-f]{64})/i)?.[1];
+      if (!Number.isSafeInteger(logIndex) || !emitterAddress) return [];
+      return [{emitterAddress, logIndex, poolIdentifier:poolId ? '0x' + poolId : emitterAddress}];
+    });
     if (!hash || !block || (!fromMatch && addressLinks.length === 0)) return null;
     return {
-      accountAddresses:[...new Set([fromMatch || addressLinks[0], toMatch || addressLinks[1]].filter(Boolean))], blockNumber:block, feeWei:toWei(feeEth),
+      accountAddresses:[...new Set([fromMatch || addressLinks[0], toMatch || addressLinks[1], ...swapPools.map((pool) => pool.poolIdentifier)].filter(Boolean))], blockNumber:block, feeWei:toWei(feeEth),
       ...(failureReason ? {failureReason} : {}), from:fromMatch || addressLinks[0], hash, rawInput:'0x',
+      swapPools,
       status:/success|\u6210\u529F/i.test(statusText)?'success':reverted?'reverted':'unknown',
       timestamp:unix ? new Date(Number(unix)*1000).toISOString() : timestampText ? new Date(timestampText.replace('+UTC','UTC')).toISOString() : new Date().toISOString(),
       to:toMatch || addressLinks[1] || null, tokenAddresses:targetTokenLinks, tokenTransfers:[], valueWei:toWei(valueEth)
@@ -16376,6 +16403,7 @@ function projectEvmBrowserTransaction(parsed, reference, explorerUrl, source) {
         structuredData: {
           accountAddresses: parsed.accountAddresses,
           ...parsed.failureReason === void 0 ? {} : { failureReason: parsed.failureReason },
+          swapPools: parsed.swapPools,
           tokenAddresses: parsed.tokenAddresses
         },
         supports: [findingId],
@@ -16777,8 +16805,15 @@ var xxyySurroundingTradeSchema = xxyyContextTradeSchema.extend({
   chainStatus: external_exports.enum(["resolved", "unavailable"]),
   slot: external_exports.string().regex(/^(?:0|[1-9]\d*)$/u).optional()
 }).strict();
+var xxyyExecutionPoolSchema = external_exports.object({
+  emitterAddress: external_exports.string().trim().min(1).max(256),
+  logIndex: external_exports.number().int().nonnegative(),
+  poolIdentifier: external_exports.string().trim().min(1).max(256),
+  source: external_exports.literal("explorer_event_log")
+}).strict();
 var diagnoseXxyyTransactionOutputSchema = external_exports.object({
   checks: external_exports.array(xxyyDiagnosisCheckSchema).min(1).max(2),
+  executionPools: external_exports.array(xxyyExecutionPoolSchema).max(128).optional(),
   market: xxyyTradeLookupResultSchema.optional(),
   poolAssessment: xxyyPoolAssessmentSchema.optional(),
   sandwichAssessment: xxyySandwichAssessmentSchema.optional(),
@@ -17421,6 +17456,7 @@ function createXxyyTransactionDiagnosisService(options) {
         requestOptions.signal === void 0 ? {} : { signal: requestOptions.signal }
       );
       const context = extractLookupContext(transaction);
+      const executionPools = extractExecutionPools(transaction);
       const warnings = [];
       if (transaction.family === "solana" && transaction.analysis?.sources.some((source) => source.kind === "explorer_browser") || transaction.family === "evm" && transaction.status === "partial") {
         warnings.push(
@@ -17442,6 +17478,11 @@ function createXxyyTransactionDiagnosisService(options) {
         warnings.push("No token address or mint was available for an XXYY market lookup.");
       } else if (market?.status !== "exact") {
         warnings.push("XXYY did not return one exact full transaction-hash match.");
+      }
+      if (executionPools.length > 1) {
+        warnings.push(
+          `Explorer event logs show that this transaction was split across ${executionPools.length} swap pools.`
+        );
       }
       let poolAssessment;
       if (input.checks.includes("pool") && market?.status === "exact") {
@@ -17504,6 +17545,7 @@ function createXxyyTransactionDiagnosisService(options) {
             );
             return diagnoseXxyyTransactionOutputSchema.parse({
               checks: input.checks,
+              ...executionPools.length === 0 ? {} : { executionPools },
               market,
               ...poolAssessment === void 0 ? {} : { poolAssessment },
               ...sandwichAssessment === void 0 ? {} : { sandwichAssessment },
@@ -17527,6 +17569,7 @@ function createXxyyTransactionDiagnosisService(options) {
       }
       return diagnoseXxyyTransactionOutputSchema.parse({
         checks: input.checks,
+        ...executionPools.length === 0 ? {} : { executionPools },
         ...market === void 0 ? {} : { market },
         ...poolAssessment === void 0 ? {} : { poolAssessment },
         ...sandwichAssessment === void 0 ? {} : { sandwichAssessment },
@@ -17545,6 +17588,27 @@ function createXxyyTransactionDiagnosisService(options) {
       });
     }
   };
+}
+function extractExecutionPools(transaction) {
+  if (transaction.family !== "evm") return [];
+  const seen = /* @__PURE__ */ new Set();
+  return transaction.analysis.evidence.flatMap((evidence) => {
+    const data = evidence.structuredData;
+    if (!isRecord3(data) || !Array.isArray(data.swapPools)) return [];
+    return data.swapPools.flatMap((value) => {
+      if (!isRecord3(value)) return [];
+      const emitterAddress = value.emitterAddress;
+      const logIndex = value.logIndex;
+      const poolIdentifier = value.poolIdentifier;
+      if (typeof emitterAddress !== "string" || typeof logIndex !== "number" || !Number.isSafeInteger(logIndex) || logIndex < 0 || typeof poolIdentifier !== "string") {
+        return [];
+      }
+      const key = `${logIndex}:${poolIdentifier.toLowerCase()}`;
+      if (seen.has(key)) return [];
+      seen.add(key);
+      return [{ emitterAddress, logIndex, poolIdentifier, source: "explorer_event_log" }];
+    });
+  });
 }
 function extractLookupContext(transaction) {
   if (transaction.family === "evm") {

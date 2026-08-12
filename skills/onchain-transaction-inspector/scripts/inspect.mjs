@@ -15187,6 +15187,13 @@ var browserEvmTransactionSchema = external_exports.object({
   from: external_exports.string(),
   hash: external_exports.string(),
   rawInput: external_exports.string(),
+  swapPools: external_exports.array(
+    external_exports.object({
+      emitterAddress: external_exports.string().regex(/^0x[0-9a-f]{40}$/iu),
+      logIndex: external_exports.number().int().nonnegative(),
+      poolIdentifier: external_exports.string().regex(/^0x(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu)
+    }).strict()
+  ).max(128),
   status: external_exports.enum(["reverted", "success", "unknown"]),
   timestamp: external_exports.string(),
   to: external_exports.string().nullable(),
@@ -15422,6 +15429,7 @@ async function loadBlockscoutTransaction(input) {
     from,
     hash: raw.hash,
     rawInput: typeof raw.raw_input === "string" ? raw.raw_input : "0x",
+    swapPools: [],
     status: raw.status === "ok" || raw.result === "success" ? "success" : raw.status === "error" || raw.result === "error" ? "reverted" : "unknown",
     timestamp: raw.timestamp,
     to,
@@ -15504,10 +15512,29 @@ function createScanPageTransactionExpression() {
     const targetTokenLinks = actionTokenLinks.length > 0
       ? [...new Set(actionTokenLinks)].slice(0, 1)
       : [...new Set([...actorReceivedTokens, ...tokenLinks, ...textAddresses])];
+    const eventLogRows = [...document.querySelectorAll('#eventlog-tab-content [id^="logI_"], [id^="logI_"]')];
+    const eventLogTab = document.querySelector?.('#eventlog-tab');
+    const eventLogTabActive = eventLogTab?.getAttribute('aria-selected') === 'true' || eventLogTab?.classList?.contains('active');
+    if (eventLogTab && eventLogRows.length === 0 && !eventLogTabActive) {
+      eventLogTab.click();
+      return null;
+    }
+    const swapPools = eventLogRows.flatMap((row) => {
+      const rowText = (row.textContent || '').replace(/\\r/g, '').trim();
+      if (!/(?:^|\\s)Name\\s*Swap\\s*\\(/i.test(rowText)) return [];
+      const logIndex = Number((row.getAttribute('id') || '').match(/^logI_(\\d+)$/i)?.[1]);
+      const emitterAddress = [...row.querySelectorAll('a[href*="/address/0x"]')]
+        .map((anchor) => (anchor.getAttribute('href') || '').match(/\\/address\\/(0x[0-9a-f]{40})/i)?.[1])
+        .find(Boolean) || rowText.match(/(?:^|\\s)Address\\s+(0x[0-9a-f]{40})/i)?.[1];
+      const poolId = rowText.match(/:\\s*id\\s+DecDecode\\s+Hex\\s+(?:0x)?([0-9a-f]{64})/i)?.[1];
+      if (!Number.isSafeInteger(logIndex) || !emitterAddress) return [];
+      return [{emitterAddress, logIndex, poolIdentifier:poolId ? '0x' + poolId : emitterAddress}];
+    });
     if (!hash || !block || (!fromMatch && addressLinks.length === 0)) return null;
     return {
-      accountAddresses:[...new Set([fromMatch || addressLinks[0], toMatch || addressLinks[1]].filter(Boolean))], blockNumber:block, feeWei:toWei(feeEth),
+      accountAddresses:[...new Set([fromMatch || addressLinks[0], toMatch || addressLinks[1], ...swapPools.map((pool) => pool.poolIdentifier)].filter(Boolean))], blockNumber:block, feeWei:toWei(feeEth),
       ...(failureReason ? {failureReason} : {}), from:fromMatch || addressLinks[0], hash, rawInput:'0x',
+      swapPools,
       status:/success|\u6210\u529F/i.test(statusText)?'success':reverted?'reverted':'unknown',
       timestamp:unix ? new Date(Number(unix)*1000).toISOString() : timestampText ? new Date(timestampText.replace('+UTC','UTC')).toISOString() : new Date().toISOString(),
       to:toMatch || addressLinks[1] || null, tokenAddresses:targetTokenLinks, tokenTransfers:[], valueWei:toWei(valueEth)
@@ -15538,6 +15565,7 @@ function projectEvmBrowserTransaction(parsed, reference, explorerUrl, source) {
         structuredData: {
           accountAddresses: parsed.accountAddresses,
           ...parsed.failureReason === void 0 ? {} : { failureReason: parsed.failureReason },
+          swapPools: parsed.swapPools,
           tokenAddresses: parsed.tokenAddresses
         },
         supports: [findingId],

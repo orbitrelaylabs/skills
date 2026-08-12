@@ -48,6 +48,7 @@ export function createXxyyTransactionDiagnosisService(
         requestOptions.signal === undefined ? {} : { signal: requestOptions.signal },
       );
       const context = extractLookupContext(transaction);
+      const executionPools = extractExecutionPools(transaction);
       const warnings: string[] = [];
       if (
         (transaction.family === 'solana' &&
@@ -79,6 +80,11 @@ export function createXxyyTransactionDiagnosisService(
         warnings.push('No token address or mint was available for an XXYY market lookup.');
       } else if (market?.status !== 'exact') {
         warnings.push('XXYY did not return one exact full transaction-hash match.');
+      }
+      if (executionPools.length > 1) {
+        warnings.push(
+          `Explorer event logs show that this transaction was split across ${executionPools.length} swap pools.`,
+        );
       }
 
       let poolAssessment;
@@ -154,6 +160,7 @@ export function createXxyyTransactionDiagnosisService(
             );
             return diagnoseXxyyTransactionOutputSchema.parse({
               checks: input.checks,
+              ...(executionPools.length === 0 ? {} : { executionPools }),
               market,
               ...(poolAssessment === undefined ? {} : { poolAssessment }),
               ...(sandwichAssessment === undefined ? {} : { sandwichAssessment }),
@@ -178,6 +185,7 @@ export function createXxyyTransactionDiagnosisService(
 
       return diagnoseXxyyTransactionOutputSchema.parse({
         checks: input.checks,
+        ...(executionPools.length === 0 ? {} : { executionPools }),
         ...(market === undefined ? {} : { market }),
         ...(poolAssessment === undefined ? {} : { poolAssessment }),
         ...(sandwichAssessment === undefined ? {} : { sandwichAssessment }),
@@ -196,6 +204,34 @@ export function createXxyyTransactionDiagnosisService(
       });
     },
   };
+}
+
+function extractExecutionPools(transaction: GetTransactionOutput) {
+  if (transaction.family !== 'evm') return [];
+  const seen = new Set<string>();
+  return transaction.analysis.evidence.flatMap((evidence) => {
+    const data = evidence.structuredData;
+    if (!isRecord(data) || !Array.isArray(data.swapPools)) return [];
+    return data.swapPools.flatMap((value) => {
+      if (!isRecord(value)) return [];
+      const emitterAddress = value.emitterAddress;
+      const logIndex = value.logIndex;
+      const poolIdentifier = value.poolIdentifier;
+      if (
+        typeof emitterAddress !== 'string' ||
+        typeof logIndex !== 'number' ||
+        !Number.isSafeInteger(logIndex) ||
+        logIndex < 0 ||
+        typeof poolIdentifier !== 'string'
+      ) {
+        return [];
+      }
+      const key = `${logIndex}:${poolIdentifier.toLowerCase()}`;
+      if (seen.has(key)) return [];
+      seen.add(key);
+      return [{ emitterAddress, logIndex, poolIdentifier, source: 'explorer_event_log' as const }];
+    });
+  });
 }
 
 function extractLookupContext(transaction: GetTransactionOutput): {

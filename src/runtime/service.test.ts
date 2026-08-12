@@ -139,6 +139,56 @@ function evmTransactionOutput() {
 }
 
 describe('createXxyyTransactionDiagnosisService', () => {
+  it('selects a primary split-route pool only when both event amount rankings agree', async () => {
+    const transaction = evmTransactionOutput();
+    if (transaction.family !== 'evm') throw new Error('Expected EVM fixture.');
+    const evidence = transaction.analysis.evidence[0]!;
+    evidence.structuredData = {
+      accountAddresses: [evmActor, evmPool],
+      swapPools: [
+        {
+          amount0Raw: '-10',
+          amount1Raw: '100',
+          emitterAddress: evmPool,
+          logIndex: 1,
+          poolIdentifier: `0x${'1'.repeat(64)}`,
+        },
+        {
+          amount0Raw: '-30',
+          amount1Raw: '300',
+          emitterAddress: evmPool,
+          logIndex: 2,
+          poolIdentifier: `0x${'2'.repeat(64)}`,
+        },
+      ],
+      tokenAddresses: [evmToken],
+    };
+    const service = createXxyyTransactionDiagnosisService({
+      chainAnalysis: createPublicTransactionClientStub(async () => transaction),
+      marketData: createXxyyMarketDataClientStub(async () => ({
+        candidatePairs: [],
+        diagnostics: [],
+        status: 'conflict',
+      })),
+      poolPolicy: {
+        maxSmallPoolLiquidityUsd: '10000',
+        maxSmallPoolRelativeLiquidityPpm: 100_000,
+        version: '1.0.0',
+      },
+    });
+
+    const result = await service.diagnoseXxyyTransaction({
+      checks: ['pool'],
+      network: 'eip155:56',
+      reference: evmTransactionHash,
+    });
+
+    expect(result.executionPools?.map((pool) => [pool.logIndex, pool.isPrimary])).toEqual([
+      [1, undefined],
+      [2, true],
+    ]);
+  });
+
   it('never calls deep MEV analysis from the browser-only EVM diagnosis path', async () => {
     const transaction = evmTransactionOutput();
     const getTransaction = vi.fn(async () => transaction);

@@ -209,16 +209,20 @@ export function createXxyyTransactionDiagnosisService(
 function extractExecutionPools(transaction: GetTransactionOutput) {
   if (transaction.family !== 'evm') return [];
   const seen = new Set<string>();
-  return transaction.analysis.evidence.flatMap((evidence) => {
+  const pools = transaction.analysis.evidence.flatMap((evidence) => {
     const data = evidence.structuredData;
     if (!isRecord(data) || !Array.isArray(data.swapPools)) return [];
     return data.swapPools.flatMap((value) => {
       if (!isRecord(value)) return [];
       const emitterAddress = value.emitterAddress;
+      const amount0Raw = value.amount0Raw;
+      const amount1Raw = value.amount1Raw;
       const logIndex = value.logIndex;
       const poolIdentifier = value.poolIdentifier;
       if (
         typeof emitterAddress !== 'string' ||
+        (amount0Raw !== undefined && typeof amount0Raw !== 'string') ||
+        (amount1Raw !== undefined && typeof amount1Raw !== 'string') ||
         typeof logIndex !== 'number' ||
         !Number.isSafeInteger(logIndex) ||
         logIndex < 0 ||
@@ -229,9 +233,40 @@ function extractExecutionPools(transaction: GetTransactionOutput) {
       const key = `${logIndex}:${poolIdentifier.toLowerCase()}`;
       if (seen.has(key)) return [];
       seen.add(key);
-      return [{ emitterAddress, logIndex, poolIdentifier, source: 'explorer_event_log' as const }];
+      return [
+        {
+          ...(amount0Raw === undefined ? {} : { amount0Raw }),
+          ...(amount1Raw === undefined ? {} : { amount1Raw }),
+          emitterAddress,
+          logIndex,
+          poolIdentifier,
+          source: 'explorer_event_log' as const,
+        },
+      ];
     });
   });
+  return markPrimaryExecutionPool(pools);
+}
+
+function markPrimaryExecutionPool<T extends { amount0Raw?: string; amount1Raw?: string }>(
+  pools: T[],
+): Array<T & { isPrimary?: boolean }> {
+  if (pools.length < 2 || pools.some((pool) => !pool.amount0Raw || !pool.amount1Raw)) return pools;
+  const largest0 = uniqueLargestIndex(pools.map((pool) => absoluteBigInt(pool.amount0Raw!)));
+  const largest1 = uniqueLargestIndex(pools.map((pool) => absoluteBigInt(pool.amount1Raw!)));
+  if (largest0 === undefined || largest0 !== largest1) return pools;
+  return pools.map((pool, index) => (index === largest0 ? { ...pool, isPrimary: true } : pool));
+}
+
+function uniqueLargestIndex(values: bigint[]): number | undefined {
+  const largest = values.reduce((current, value) => (value > current ? value : current), -1n);
+  const matches = values.flatMap((value, index) => (value === largest ? [index] : []));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function absoluteBigInt(value: string): bigint {
+  const parsed = BigInt(value);
+  return parsed < 0n ? -parsed : parsed;
 }
 
 function extractLookupContext(transaction: GetTransactionOutput): {

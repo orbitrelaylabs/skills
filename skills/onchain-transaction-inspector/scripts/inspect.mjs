@@ -15189,6 +15189,8 @@ var browserEvmTransactionSchema = external_exports.object({
   rawInput: external_exports.string(),
   swapPools: external_exports.array(
     external_exports.object({
+      amount0Raw: external_exports.string().regex(/^-?(?:0|[1-9]\d*)$/u).optional(),
+      amount1Raw: external_exports.string().regex(/^-?(?:0|[1-9]\d*)$/u).optional(),
       emitterAddress: external_exports.string().regex(/^0x[0-9a-f]{40}$/iu),
       logIndex: external_exports.number().int().nonnegative(),
       poolIdentifier: external_exports.string().regex(/^0x(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu)
@@ -15527,8 +15529,10 @@ function createScanPageTransactionExpression() {
         .map((anchor) => (anchor.getAttribute('href') || '').match(/\\/address\\/(0x[0-9a-f]{40})/i)?.[1])
         .find(Boolean) || rowText.match(/(?:^|\\s)Address\\s+(0x[0-9a-f]{40})/i)?.[1];
       const poolId = rowText.match(/:\\s*id\\s+DecDecode\\s+Hex\\s+(?:0x)?([0-9a-f]{64})/i)?.[1];
+      const amount0Raw = rowText.match(/amount0\\s*\\(int\\d+\\)\\s*:\\s*(-?\\d+)/i)?.[1];
+      const amount1Raw = rowText.match(/amount1\\s*\\(int\\d+\\)\\s*:\\s*(-?\\d+)/i)?.[1];
       if (!Number.isSafeInteger(logIndex) || !emitterAddress) return [];
-      return [{emitterAddress, logIndex, poolIdentifier:poolId ? '0x' + poolId : emitterAddress}];
+      return [{...(amount0Raw ? {amount0Raw} : {}), ...(amount1Raw ? {amount1Raw} : {}), emitterAddress, logIndex, poolIdentifier:poolId ? '0x' + poolId : emitterAddress}];
     });
     if (!hash || !block || (!fromMatch && addressLinks.length === 0)) return null;
     return {

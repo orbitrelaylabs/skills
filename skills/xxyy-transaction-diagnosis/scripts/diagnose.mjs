@@ -16008,6 +16008,8 @@ var browserEvmTransactionSchema = external_exports.object({
   rawInput: external_exports.string(),
   swapPools: external_exports.array(
     external_exports.object({
+      amount0Raw: external_exports.string().regex(/^-?(?:0|[1-9]\d*)$/u).optional(),
+      amount1Raw: external_exports.string().regex(/^-?(?:0|[1-9]\d*)$/u).optional(),
       emitterAddress: external_exports.string().regex(/^0x[0-9a-f]{40}$/iu),
       logIndex: external_exports.number().int().nonnegative(),
       poolIdentifier: external_exports.string().regex(/^0x(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu)
@@ -16365,8 +16367,10 @@ function createScanPageTransactionExpression() {
         .map((anchor) => (anchor.getAttribute('href') || '').match(/\\/address\\/(0x[0-9a-f]{40})/i)?.[1])
         .find(Boolean) || rowText.match(/(?:^|\\s)Address\\s+(0x[0-9a-f]{40})/i)?.[1];
       const poolId = rowText.match(/:\\s*id\\s+DecDecode\\s+Hex\\s+(?:0x)?([0-9a-f]{64})/i)?.[1];
+      const amount0Raw = rowText.match(/amount0\\s*\\(int\\d+\\)\\s*:\\s*(-?\\d+)/i)?.[1];
+      const amount1Raw = rowText.match(/amount1\\s*\\(int\\d+\\)\\s*:\\s*(-?\\d+)/i)?.[1];
       if (!Number.isSafeInteger(logIndex) || !emitterAddress) return [];
-      return [{emitterAddress, logIndex, poolIdentifier:poolId ? '0x' + poolId : emitterAddress}];
+      return [{...(amount0Raw ? {amount0Raw} : {}), ...(amount1Raw ? {amount1Raw} : {}), emitterAddress, logIndex, poolIdentifier:poolId ? '0x' + poolId : emitterAddress}];
     });
     if (!hash || !block || (!fromMatch && addressLinks.length === 0)) return null;
     return {
@@ -16806,7 +16810,10 @@ var xxyySurroundingTradeSchema = xxyyContextTradeSchema.extend({
   slot: external_exports.string().regex(/^(?:0|[1-9]\d*)$/u).optional()
 }).strict();
 var xxyyExecutionPoolSchema = external_exports.object({
+  amount0Raw: external_exports.string().regex(/^-?(?:0|[1-9]\d*)$/u).optional(),
+  amount1Raw: external_exports.string().regex(/^-?(?:0|[1-9]\d*)$/u).optional(),
   emitterAddress: external_exports.string().trim().min(1).max(256),
+  isPrimary: external_exports.boolean().optional(),
   logIndex: external_exports.number().int().nonnegative(),
   poolIdentifier: external_exports.string().trim().min(1).max(256),
   source: external_exports.literal("explorer_event_log")
@@ -17592,23 +17599,51 @@ function createXxyyTransactionDiagnosisService(options) {
 function extractExecutionPools(transaction) {
   if (transaction.family !== "evm") return [];
   const seen = /* @__PURE__ */ new Set();
-  return transaction.analysis.evidence.flatMap((evidence) => {
+  const pools = transaction.analysis.evidence.flatMap((evidence) => {
     const data = evidence.structuredData;
     if (!isRecord3(data) || !Array.isArray(data.swapPools)) return [];
     return data.swapPools.flatMap((value) => {
       if (!isRecord3(value)) return [];
       const emitterAddress = value.emitterAddress;
+      const amount0Raw = value.amount0Raw;
+      const amount1Raw = value.amount1Raw;
       const logIndex = value.logIndex;
       const poolIdentifier = value.poolIdentifier;
-      if (typeof emitterAddress !== "string" || typeof logIndex !== "number" || !Number.isSafeInteger(logIndex) || logIndex < 0 || typeof poolIdentifier !== "string") {
+      if (typeof emitterAddress !== "string" || amount0Raw !== void 0 && typeof amount0Raw !== "string" || amount1Raw !== void 0 && typeof amount1Raw !== "string" || typeof logIndex !== "number" || !Number.isSafeInteger(logIndex) || logIndex < 0 || typeof poolIdentifier !== "string") {
         return [];
       }
       const key = `${logIndex}:${poolIdentifier.toLowerCase()}`;
       if (seen.has(key)) return [];
       seen.add(key);
-      return [{ emitterAddress, logIndex, poolIdentifier, source: "explorer_event_log" }];
+      return [
+        {
+          ...amount0Raw === void 0 ? {} : { amount0Raw },
+          ...amount1Raw === void 0 ? {} : { amount1Raw },
+          emitterAddress,
+          logIndex,
+          poolIdentifier,
+          source: "explorer_event_log"
+        }
+      ];
     });
   });
+  return markPrimaryExecutionPool(pools);
+}
+function markPrimaryExecutionPool(pools) {
+  if (pools.length < 2 || pools.some((pool) => !pool.amount0Raw || !pool.amount1Raw)) return pools;
+  const largest0 = uniqueLargestIndex(pools.map((pool) => absoluteBigInt(pool.amount0Raw)));
+  const largest1 = uniqueLargestIndex(pools.map((pool) => absoluteBigInt(pool.amount1Raw)));
+  if (largest0 === void 0 || largest0 !== largest1) return pools;
+  return pools.map((pool, index) => index === largest0 ? { ...pool, isPrimary: true } : pool);
+}
+function uniqueLargestIndex(values) {
+  const largest = values.reduce((current, value) => value > current ? value : current, -1n);
+  const matches = values.flatMap((value, index) => value === largest ? [index] : []);
+  return matches.length === 1 ? matches[0] : void 0;
+}
+function absoluteBigInt(value) {
+  const parsed = BigInt(value);
+  return parsed < 0n ? -parsed : parsed;
 }
 function extractLookupContext(transaction) {
   if (transaction.family === "evm") {

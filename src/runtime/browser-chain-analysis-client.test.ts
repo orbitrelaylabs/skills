@@ -87,7 +87,7 @@ describe('browser chain analysis client', () => {
       querySelectorAll: () => [
         { getAttribute: () => `/address/${emitter}`, parentElement: null, textContent: emitter },
       ],
-      textContent: `Address ${emitter}\nNameSwap (index_topic_1 bytes32 id) View Source Topics0 0x${'f'.repeat(64)} 1: id DecDecode Hex ${poolId}`,
+      textContent: `Address ${emitter}\nNameSwap (index_topic_1 bytes32 id) View Source Topics0 0x${'f'.repeat(64)} 1: id DecDecode Hex ${poolId} amount0 (int128) :-46215000000000000 amount1 (int128) :172347457808914585152`,
     };
     const innerText = [
       'Status:',
@@ -119,6 +119,8 @@ describe('browser chain analysis client', () => {
 
     expect(value.swapPools).toEqual([
       {
+        amount0Raw: '-46215000000000000',
+        amount1Raw: '172347457808914585152',
         emitterAddress: emitter,
         logIndex: 970,
         poolIdentifier: `0x${poolId}`,

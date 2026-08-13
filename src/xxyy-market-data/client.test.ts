@@ -322,6 +322,59 @@ describe('XXYY market data adapter', () => {
     });
   });
 
+  it('selects the largest XXYY-matched execution leg for a verified multi-pool transaction', async () => {
+    const pool1 = `0x${'1'.repeat(64)}`;
+    const pool2 = `0x${'2'.repeat(64)}`;
+    const transactionId = `0x${'3'.repeat(64)}`;
+    const client = createXxyyMarketDataClient({
+      fetchImpl: async (url) =>
+        String(url).includes('/search/v3')
+          ? jsonResponse({
+              code: 0,
+              data: {
+                results: [pool1, pool2].map((address) => ({
+                  pairInfo: {
+                    address,
+                    baseToken: `0x${'4'.repeat(40)}`,
+                    chain: 'bsc',
+                    quoteToken: `0x${'5'.repeat(40)}`,
+                  },
+                })),
+              },
+            })
+          : jsonResponse({
+              code: 0,
+              data: [
+                {
+                  maker: `0x${'6'.repeat(40)}`,
+                  nativeAmount: '1',
+                  timestamp: 1,
+                  tokenAmount: '2',
+                  txHash: transactionId,
+                  type: 'buy',
+                },
+              ],
+            }),
+    });
+
+    await expect(
+      client.findTrade({
+        chain: 'eip155:56',
+        executionPools: [
+          { amount0Raw: '-10', poolIdentifier: pool1 },
+          { amount0Raw: '-30', poolIdentifier: pool2 },
+        ],
+        targetTokenAddresses: [`0x${'4'.repeat(40)}`],
+        transactionId,
+      }),
+    ).resolves.toMatchObject({
+      diagnostics: [],
+      matchedPair: { pairAddress: pool2 },
+      matchedTrades: [{ pair: { pairAddress: pool1 } }, { pair: { pairAddress: pool2 } }],
+      status: 'multi_exact',
+    });
+  });
+
   it('resolves duplicate XXYY matches only when one candidate pool is present in the chain transaction', async () => {
     const client = createXxyyMarketDataClient({
       fetchImpl: async (url) =>

@@ -66,6 +66,16 @@ export function createXxyyTransactionDiagnosisService(
               {
                 ...(context.actor === undefined ? {} : { actor: context.actor }),
                 chain: context.chain,
+                ...(executionPools.length === 0
+                  ? {}
+                  : {
+                      executionPools: executionPools.map((pool) => ({
+                        ...(pool.amount0Raw === undefined ? {} : { amount0Raw: pool.amount0Raw }),
+                        ...(pool.amount1Raw === undefined ? {} : { amount1Raw: pool.amount1Raw }),
+                        ...(pool.isPrimary === undefined ? {} : { isPrimary: pool.isPrimary }),
+                        poolIdentifier: pool.poolIdentifier,
+                      })),
+                    }),
                 targetTokenAddresses: context.targetTokenAddresses,
                 ...(context.timestampMs === undefined ? {} : { timestampMs: context.timestampMs }),
                 ...(context.transactionAccountAddresses.length === 0
@@ -78,8 +88,10 @@ export function createXxyyTransactionDiagnosisService(
 
       if (context.targetTokenAddresses.length === 0) {
         warnings.push('No token address or mint was available for an XXYY market lookup.');
-      } else if (market?.status !== 'exact') {
+      } else if (!hasSelectedMarketTrade(market)) {
         warnings.push('XXYY did not return one exact full transaction-hash match.');
+      } else if (market?.status === 'multi_exact') {
+        warnings.push('XXYY matched multiple execution legs and selected one pool for analysis.');
       }
       if (executionPools.length > 1) {
         warnings.push(
@@ -88,7 +100,7 @@ export function createXxyyTransactionDiagnosisService(
       }
 
       let poolAssessment;
-      if (input.checks.includes('pool') && market?.status === 'exact') {
+      if (input.checks.includes('pool') && hasSelectedMarketTrade(market)) {
         const canonicalPoolAddress = await options.canonicalPoolResolver?.({
           candidates: market.candidatePairs,
           chain: context.chain,
@@ -103,7 +115,7 @@ export function createXxyyTransactionDiagnosisService(
       }
 
       const surroundingTrades =
-        input.checks.includes('sandwich') && market?.status === 'exact'
+        input.checks.includes('sandwich') && hasSelectedMarketTrade(market)
           ? await resolveSurroundingTrades(
               market,
               context.chain,
@@ -117,7 +129,7 @@ export function createXxyyTransactionDiagnosisService(
 
       let sandwichAssessment;
       if (input.checks.includes('sandwich')) {
-        if (market?.status === 'exact') {
+        if (hasSelectedMarketTrade(market)) {
           sandwichAssessment = assessMarketSandwichEvidence(transaction, market, surroundingTrades);
           warnings.push(
             'Browser and XXYY rows can support a same-block/slot structural pattern, but pool-state and profit/loss evidence remain unavailable for confirmation.',
@@ -131,7 +143,7 @@ export function createXxyyTransactionDiagnosisService(
         reason: 'trade_not_exactly_matched' as const,
         status: 'unavailable' as const,
       };
-      if (market?.status === 'exact') {
+      if (hasSelectedMarketTrade(market)) {
         if (options.screenshotProvider === undefined) {
           screenshotEvidence = { reason: 'not_configured', status: 'unavailable' };
         } else {
@@ -350,7 +362,7 @@ function targetObservation(
 }
 
 function diagnosisStatus(input: {
-  marketStatus: 'conflict' | 'exact' | 'not_found' | undefined;
+  marketStatus: 'conflict' | 'exact' | 'multi_exact' | 'not_found' | undefined;
   poolAssessment: ReturnType<typeof assessXxyyPoolSelection> | undefined;
   sandwichAssessment: ReturnType<typeof assessXxyySandwichPattern> | undefined;
   screenshotReady: boolean;
@@ -364,7 +376,7 @@ function diagnosisStatus(input: {
     input.sandwichAssessment?.verdict === 'likely' ||
     input.poolAssessment?.liquidityClass === 'unknown';
   return input.transaction.status === 'success' &&
-    input.marketStatus === 'exact' &&
+    (input.marketStatus === 'exact' || input.marketStatus === 'multi_exact') &&
     input.screenshotReady &&
     !conclusionIncomplete
     ? 'success'
@@ -396,14 +408,16 @@ function assessMarketSandwichEvidence(
       : [surroundingObservation(later, market.matchedPair!.pairAddress, 2)]),
   ];
   const neighborhoodComplete =
-    earlier !== undefined &&
-    later !== undefined &&
-    earlier.chainStatus === 'resolved' &&
-    later.chainStatus === 'resolved' &&
-    ((target.blockNumber !== undefined &&
-      earlier.blockNumber !== undefined &&
-      later.blockNumber !== undefined) ||
-      (target.slot !== undefined && earlier.slot !== undefined && later.slot !== undefined));
+    (market.contextComplete === true &&
+      surroundingTrades.every((trade) => trade.chainStatus === 'resolved')) ||
+    (earlier !== undefined &&
+      later !== undefined &&
+      earlier.chainStatus === 'resolved' &&
+      later.chainStatus === 'resolved' &&
+      ((target.blockNumber !== undefined &&
+        earlier.blockNumber !== undefined &&
+        later.blockNumber !== undefined) ||
+        (target.slot !== undefined && earlier.slot !== undefined && later.slot !== undefined)));
   return assessXxyySandwichPattern({
     coverage: {
       actorAssetDeltas: 'missing',
@@ -486,16 +500,31 @@ async function resolveSurroundingTrades(
 
 function buildSummary(
   transaction: GetTransactionOutput,
-  marketStatus: 'conflict' | 'exact' | 'not_found' | undefined,
+  marketStatus: 'conflict' | 'exact' | 'multi_exact' | 'not_found' | undefined,
   screenshotReady: boolean,
 ): string {
   const match =
     marketStatus === 'exact'
       ? 'XXYY returned one exact trade match.'
-      : marketStatus === 'conflict'
-        ? 'XXYY evidence conflicted with the normalized transaction.'
-        : 'No exact XXYY trade match was available.';
+      : marketStatus === 'multi_exact'
+        ? 'XXYY returned multiple execution-leg matches and selected one pool for analysis.'
+        : marketStatus === 'conflict'
+          ? 'XXYY evidence conflicted with the normalized transaction.'
+          : 'No exact XXYY trade match was available.';
   return `${transaction.summary} ${match} Screenshot evidence is ${screenshotReady ? 'ready' : 'unavailable'}.`;
+}
+
+function hasSelectedMarketTrade(
+  market: XxyyTradeLookupResult | undefined,
+): market is XxyyTradeLookupResult & {
+  matchedPair: NonNullable<XxyyTradeLookupResult['matchedPair']>;
+  trade: NonNullable<XxyyTradeLookupResult['trade']>;
+} {
+  return (
+    (market?.status === 'exact' || market?.status === 'multi_exact') &&
+    market.matchedPair !== undefined &&
+    market.trade !== undefined
+  );
 }
 
 function unique(values: readonly string[]): string[] {

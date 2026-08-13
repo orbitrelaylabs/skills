@@ -20,6 +20,7 @@ const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576;
 const TRADE_WINDOW_MS = 120_000;
 const TRADE_SEARCH_WINDOWS_MS = [2_000, 15_000, TRADE_WINDOW_MS] as const;
 const MAX_PAIR_CANDIDATES = 64;
+const TRADE_SEARCH_PAGE_SIZE = 50;
 
 const pairApiSchema = z
   .object({
@@ -110,18 +111,63 @@ export function createXxyyMarketDataClient(
         ...(requestOptions.signal === undefined ? {} : { signal: requestOptions.signal }),
       });
       const matches = disambiguateMatchesByTransactionAccounts(input, tradeSearch.matches);
-      if (matches.length !== 1) {
-        if (matches.length > 1) {
+      if (matches.length > 1) {
+        const selected = selectExecutionPoolMatch(input, matches);
+        if (selected === undefined) {
           diagnostics.push({
             code: 'multiple_transaction_matches',
             retryable: false,
             stage: 'validate_match',
           });
+          return xxyyTradeLookupResultSchema.parse({
+            candidatePairs,
+            diagnostics,
+            status: 'conflict',
+          });
+        }
+        if (
+          input.actor !== undefined &&
+          matches.some((match) => !identifierEquals(input.chain, input.actor!, match.trade.maker))
+        ) {
+          diagnostics.push({
+            code: 'source_actor_conflict',
+            retryable: false,
+            stage: 'validate_match',
+          });
+          return xxyyTradeLookupResultSchema.parse({
+            candidatePairs,
+            diagnostics,
+            status: 'conflict',
+          });
         }
         return xxyyTradeLookupResultSchema.parse({
           candidatePairs,
+          contextComplete:
+            (tradeSearch.tradesByPair.get(selected.pair.pairAddress)?.length ?? 0) <
+            TRADE_SEARCH_PAGE_SIZE,
+          contextTrades: contextTradesForMatch(
+            selected.trade,
+            tradeSearch.tradesByPair.get(selected.pair.pairAddress) ?? [],
+          ),
           diagnostics,
-          status: matches.length > 1 ? 'conflict' : 'not_found',
+          matchedPair: selected.pair,
+          matchedTrades: matches.map((match) => ({
+            contextTrades: contextTradesForMatch(
+              match.trade,
+              tradeSearch.tradesByPair.get(match.pair.pairAddress) ?? [],
+            ),
+            pair: match.pair,
+            trade: match.trade,
+          })),
+          status: 'multi_exact',
+          trade: selected.trade,
+        });
+      }
+      if (matches.length === 0) {
+        return xxyyTradeLookupResultSchema.parse({
+          candidatePairs,
+          diagnostics,
+          status: 'not_found',
         });
       }
       const match = matches[0]!;
@@ -142,6 +188,9 @@ export function createXxyyMarketDataClient(
       }
       return xxyyTradeLookupResultSchema.parse({
         candidatePairs,
+        contextComplete:
+          (tradeSearch.tradesByPair.get(match.pair.pairAddress)?.length ?? 0) <
+          TRADE_SEARCH_PAGE_SIZE,
         contextTrades: contextTradesForMatch(
           match.trade,
           tradeSearch.tradesByPair.get(match.pair.pairAddress) ?? [],
@@ -153,6 +202,41 @@ export function createXxyyMarketDataClient(
       });
     },
   };
+}
+
+function selectExecutionPoolMatch(
+  input: z.output<typeof xxyyTradeLookupInputSchema>,
+  matches: Array<{ pair: XxyyPairCandidate; trade: XxyyMarketTrade }>,
+) {
+  if (input.executionPools === undefined) return undefined;
+  const executionPools = new Map(
+    input.executionPools.map((pool) => [
+      normalizeIdentifier(input.chain, pool.poolIdentifier),
+      pool,
+    ]),
+  );
+  const observedMatches = matches.flatMap((match) => {
+    const pool = executionPools.get(normalizeIdentifier(input.chain, match.pair.pairAddress));
+    return pool === undefined ? [] : [{ match, pool }];
+  });
+  const primaryMatches = observedMatches.filter(({ pool }) => pool.isPrimary === true);
+  if (primaryMatches.length === 1) return primaryMatches[0]!.match;
+  const ranked = observedMatches.flatMap(({ match, pool }) =>
+    pool.amount0Raw === undefined ? [] : [{ amount: absoluteBigInt(pool.amount0Raw), match }],
+  );
+  if (ranked.length !== observedMatches.length || ranked.length === 0) return undefined;
+  const largest = ranked.reduce(
+    (current, candidate) => (candidate.amount > current.amount ? candidate : current),
+    ranked[0]!,
+  );
+  return ranked.filter((candidate) => candidate.amount === largest.amount).length === 1
+    ? largest.match
+    : undefined;
+}
+
+function absoluteBigInt(value: string): bigint {
+  const parsed = BigInt(value);
+  return parsed < 0n ? -parsed : parsed;
 }
 
 async function loadCandidatePairs(input: {
@@ -429,7 +513,7 @@ function tradeSearchBody(
     makerAddress: '',
     nativeAmountEnd: '',
     nativeAmountStart: '',
-    pageSize: 50,
+    pageSize: TRADE_SEARCH_PAGE_SIZE,
     pairAddress,
     reverse: 0,
     timeEnd: timestamp === undefined || windowMs === undefined ? '' : timestamp + windowMs,

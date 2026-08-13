@@ -14872,6 +14872,14 @@ var xxyyContextTradeSchema = xxyyMarketTradeSchema.extend({
 var xxyyTradeLookupInputSchema = external_exports.object({
   actor: identifierSchema2.optional(),
   chain: external_exports.string().trim().min(2).max(96),
+  executionPools: external_exports.array(
+    external_exports.object({
+      amount0Raw: external_exports.string().regex(/^-?(?:0|[1-9]\d*)$/u).optional(),
+      amount1Raw: external_exports.string().regex(/^-?(?:0|[1-9]\d*)$/u).optional(),
+      isPrimary: external_exports.boolean().optional(),
+      poolIdentifier: identifierSchema2
+    }).strict()
+  ).max(128).optional(),
   targetTokenAddresses: external_exports.array(identifierSchema2).min(1).max(8),
   timestampMs: external_exports.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   transactionAccountAddresses: external_exports.array(identifierSchema2).max(512).optional(),
@@ -14894,24 +14902,39 @@ var xxyyMarketDiagnosticSchema = external_exports.object({
 }).strict();
 var xxyyTradeLookupResultSchema = external_exports.object({
   candidatePairs: external_exports.array(xxyyPairCandidateSchema).max(64),
+  contextComplete: external_exports.boolean().optional(),
   contextTrades: external_exports.array(xxyyContextTradeSchema).max(12).optional(),
   diagnostics: external_exports.array(xxyyMarketDiagnosticSchema).max(100),
   matchedPair: xxyyPairCandidateSchema.optional(),
-  status: external_exports.enum(["exact", "conflict", "not_found"]),
+  matchedTrades: external_exports.array(
+    external_exports.object({
+      contextTrades: external_exports.array(xxyyContextTradeSchema).max(12),
+      pair: xxyyPairCandidateSchema,
+      trade: xxyyMarketTradeSchema
+    }).strict()
+  ).max(128).optional(),
+  status: external_exports.enum(["exact", "multi_exact", "conflict", "not_found"]),
   trade: xxyyMarketTradeSchema.optional()
 }).strict().superRefine((value, context) => {
-  if (value.status === "exact" && (value.trade === void 0 || value.matchedPair === void 0)) {
+  if ((value.status === "exact" || value.status === "multi_exact") && (value.trade === void 0 || value.matchedPair === void 0)) {
     context.addIssue({
       code: "custom",
       message: "An exact XXYY trade match requires the trade and matched pair.",
       path: ["status"]
     });
   }
-  if (value.status !== "exact" && (value.trade !== void 0 || value.matchedPair !== void 0 || (value.contextTrades?.length ?? 0) > 0)) {
+  if (value.status !== "exact" && value.status !== "multi_exact" && (value.trade !== void 0 || value.matchedPair !== void 0 || value.contextComplete !== void 0 || (value.contextTrades?.length ?? 0) > 0)) {
     context.addIssue({
       code: "custom",
       message: "Only an exact XXYY trade match may expose one selected trade and pair.",
       path: ["status"]
+    });
+  }
+  if (value.status === "multi_exact" && (value.matchedTrades?.length ?? 0) < 2) {
+    context.addIssue({
+      code: "custom",
+      message: "A multi-pool XXYY match requires at least two matched trades.",
+      path: ["matchedTrades"]
     });
   }
   if (value.trade !== void 0 && value.contextTrades?.some((trade) => trade.transactionId === value.trade?.transactionId)) {
@@ -14941,6 +14964,7 @@ var DEFAULT_MAX_RESPONSE_BYTES = 1048576;
 var TRADE_WINDOW_MS = 12e4;
 var TRADE_SEARCH_WINDOWS_MS = [2e3, 15e3, TRADE_WINDOW_MS];
 var MAX_PAIR_CANDIDATES = 64;
+var TRADE_SEARCH_PAGE_SIZE = 50;
 var pairApiSchema = external_exports.object({
   pairInfo: external_exports.object({
     address: external_exports.string(),
@@ -15005,18 +15029,58 @@ function createXxyyMarketDataClient(options = {}) {
         ...requestOptions.signal === void 0 ? {} : { signal: requestOptions.signal }
       });
       const matches = disambiguateMatchesByTransactionAccounts(input, tradeSearch.matches);
-      if (matches.length !== 1) {
-        if (matches.length > 1) {
+      if (matches.length > 1) {
+        const selected = selectExecutionPoolMatch(input, matches);
+        if (selected === void 0) {
           diagnostics.push({
             code: "multiple_transaction_matches",
             retryable: false,
             stage: "validate_match"
           });
+          return xxyyTradeLookupResultSchema.parse({
+            candidatePairs,
+            diagnostics,
+            status: "conflict"
+          });
+        }
+        if (input.actor !== void 0 && matches.some((match2) => !identifierEquals(input.chain, input.actor, match2.trade.maker))) {
+          diagnostics.push({
+            code: "source_actor_conflict",
+            retryable: false,
+            stage: "validate_match"
+          });
+          return xxyyTradeLookupResultSchema.parse({
+            candidatePairs,
+            diagnostics,
+            status: "conflict"
+          });
         }
         return xxyyTradeLookupResultSchema.parse({
           candidatePairs,
+          contextComplete: (tradeSearch.tradesByPair.get(selected.pair.pairAddress)?.length ?? 0) < TRADE_SEARCH_PAGE_SIZE,
+          contextTrades: contextTradesForMatch(
+            selected.trade,
+            tradeSearch.tradesByPair.get(selected.pair.pairAddress) ?? []
+          ),
           diagnostics,
-          status: matches.length > 1 ? "conflict" : "not_found"
+          matchedPair: selected.pair,
+          matchedTrades: matches.map((match2) => ({
+            contextTrades: contextTradesForMatch(
+              match2.trade,
+              tradeSearch.tradesByPair.get(match2.pair.pairAddress) ?? []
+            ),
+            pair: match2.pair,
+            trade: match2.trade
+          })),
+          status: "multi_exact",
+          trade: selected.trade
+        });
+      }
+      if (matches.length === 0) {
+        return xxyyTradeLookupResultSchema.parse({
+          candidatePairs,
+          diagnostics,
+          status: "not_found"
         });
       }
       const match = matches[0];
@@ -15034,6 +15098,7 @@ function createXxyyMarketDataClient(options = {}) {
       }
       return xxyyTradeLookupResultSchema.parse({
         candidatePairs,
+        contextComplete: (tradeSearch.tradesByPair.get(match.pair.pairAddress)?.length ?? 0) < TRADE_SEARCH_PAGE_SIZE,
         contextTrades: contextTradesForMatch(
           match.trade,
           tradeSearch.tradesByPair.get(match.pair.pairAddress) ?? []
@@ -15045,6 +15110,34 @@ function createXxyyMarketDataClient(options = {}) {
       });
     }
   };
+}
+function selectExecutionPoolMatch(input, matches) {
+  if (input.executionPools === void 0) return void 0;
+  const executionPools = new Map(
+    input.executionPools.map((pool) => [
+      normalizeIdentifier(input.chain, pool.poolIdentifier),
+      pool
+    ])
+  );
+  const observedMatches = matches.flatMap((match) => {
+    const pool = executionPools.get(normalizeIdentifier(input.chain, match.pair.pairAddress));
+    return pool === void 0 ? [] : [{ match, pool }];
+  });
+  const primaryMatches = observedMatches.filter(({ pool }) => pool.isPrimary === true);
+  if (primaryMatches.length === 1) return primaryMatches[0].match;
+  const ranked = observedMatches.flatMap(
+    ({ match, pool }) => pool.amount0Raw === void 0 ? [] : [{ amount: absoluteBigInt(pool.amount0Raw), match }]
+  );
+  if (ranked.length !== observedMatches.length || ranked.length === 0) return void 0;
+  const largest = ranked.reduce(
+    (current, candidate) => candidate.amount > current.amount ? candidate : current,
+    ranked[0]
+  );
+  return ranked.filter((candidate) => candidate.amount === largest.amount).length === 1 ? largest.match : void 0;
+}
+function absoluteBigInt(value) {
+  const parsed = BigInt(value);
+  return parsed < 0n ? -parsed : parsed;
 }
 async function loadCandidatePairs(input) {
   const pairs = /* @__PURE__ */ new Map();
@@ -15253,7 +15346,7 @@ function tradeSearchBody(pairAddress, timestamp, windowMs) {
     makerAddress: "",
     nativeAmountEnd: "",
     nativeAmountStart: "",
-    pageSize: 50,
+    pageSize: TRADE_SEARCH_PAGE_SIZE,
     pairAddress,
     reverse: 0,
     timeEnd: timestamp === void 0 || windowMs === void 0 ? "" : timestamp + windowMs,
@@ -17474,6 +17567,14 @@ function createXxyyTransactionDiagnosisService(options) {
         {
           ...context.actor === void 0 ? {} : { actor: context.actor },
           chain: context.chain,
+          ...executionPools.length === 0 ? {} : {
+            executionPools: executionPools.map((pool) => ({
+              ...pool.amount0Raw === void 0 ? {} : { amount0Raw: pool.amount0Raw },
+              ...pool.amount1Raw === void 0 ? {} : { amount1Raw: pool.amount1Raw },
+              ...pool.isPrimary === void 0 ? {} : { isPrimary: pool.isPrimary },
+              poolIdentifier: pool.poolIdentifier
+            }))
+          },
           targetTokenAddresses: context.targetTokenAddresses,
           ...context.timestampMs === void 0 ? {} : { timestampMs: context.timestampMs },
           ...context.transactionAccountAddresses.length === 0 ? {} : { transactionAccountAddresses: context.transactionAccountAddresses },
@@ -17483,8 +17584,10 @@ function createXxyyTransactionDiagnosisService(options) {
       );
       if (context.targetTokenAddresses.length === 0) {
         warnings.push("No token address or mint was available for an XXYY market lookup.");
-      } else if (market?.status !== "exact") {
+      } else if (!hasSelectedMarketTrade(market)) {
         warnings.push("XXYY did not return one exact full transaction-hash match.");
+      } else if (market?.status === "multi_exact") {
+        warnings.push("XXYY matched multiple execution legs and selected one pool for analysis.");
       }
       if (executionPools.length > 1) {
         warnings.push(
@@ -17492,7 +17595,7 @@ function createXxyyTransactionDiagnosisService(options) {
         );
       }
       let poolAssessment;
-      if (input.checks.includes("pool") && market?.status === "exact") {
+      if (input.checks.includes("pool") && hasSelectedMarketTrade(market)) {
         const canonicalPoolAddress = await options.canonicalPoolResolver?.({
           candidates: market.candidatePairs,
           chain: context.chain,
@@ -17505,7 +17608,7 @@ function createXxyyTransactionDiagnosisService(options) {
           policy: poolPolicy
         });
       }
-      const surroundingTrades = input.checks.includes("sandwich") && market?.status === "exact" ? await resolveSurroundingTrades(
+      const surroundingTrades = input.checks.includes("sandwich") && hasSelectedMarketTrade(market) ? await resolveSurroundingTrades(
         market,
         context.chain,
         options.chainAnalysis,
@@ -17516,7 +17619,7 @@ function createXxyyTransactionDiagnosisService(options) {
       }
       let sandwichAssessment;
       if (input.checks.includes("sandwich")) {
-        if (market?.status === "exact") {
+        if (hasSelectedMarketTrade(market)) {
           sandwichAssessment = assessMarketSandwichEvidence(transaction, market, surroundingTrades);
           warnings.push(
             "Browser and XXYY rows can support a same-block/slot structural pattern, but pool-state and profit/loss evidence remain unavailable for confirmation."
@@ -17529,7 +17632,7 @@ function createXxyyTransactionDiagnosisService(options) {
         reason: "trade_not_exactly_matched",
         status: "unavailable"
       };
-      if (market?.status === "exact") {
+      if (hasSelectedMarketTrade(market)) {
         if (options.screenshotProvider === void 0) {
           screenshotEvidence = { reason: "not_configured", status: "unavailable" };
         } else {
@@ -17631,8 +17734,8 @@ function extractExecutionPools(transaction) {
 }
 function markPrimaryExecutionPool(pools) {
   if (pools.length < 2 || pools.some((pool) => !pool.amount0Raw || !pool.amount1Raw)) return pools;
-  const largest0 = uniqueLargestIndex(pools.map((pool) => absoluteBigInt(pool.amount0Raw)));
-  const largest1 = uniqueLargestIndex(pools.map((pool) => absoluteBigInt(pool.amount1Raw)));
+  const largest0 = uniqueLargestIndex(pools.map((pool) => absoluteBigInt2(pool.amount0Raw)));
+  const largest1 = uniqueLargestIndex(pools.map((pool) => absoluteBigInt2(pool.amount1Raw)));
   if (largest0 === void 0 || largest0 !== largest1) return pools;
   return pools.map((pool, index) => index === largest0 ? { ...pool, isPrimary: true } : pool);
 }
@@ -17641,7 +17744,7 @@ function uniqueLargestIndex(values) {
   const matches = values.flatMap((value, index) => value === largest ? [index] : []);
   return matches.length === 1 ? matches[0] : void 0;
 }
-function absoluteBigInt(value) {
+function absoluteBigInt2(value) {
   const parsed = BigInt(value);
   return parsed < 0n ? -parsed : parsed;
 }
@@ -17705,7 +17808,7 @@ function diagnosisStatus(input) {
     return "insufficient_data";
   }
   const conclusionIncomplete = input.sandwichAssessment?.verdict === "insufficient_data" || input.sandwichAssessment?.verdict === "likely" || input.poolAssessment?.liquidityClass === "unknown";
-  return input.transaction.status === "success" && input.marketStatus === "exact" && input.screenshotReady && !conclusionIncomplete ? "success" : "partial";
+  return input.transaction.status === "success" && (input.marketStatus === "exact" || input.marketStatus === "multi_exact") && input.screenshotReady && !conclusionIncomplete ? "success" : "partial";
 }
 function assessMarketSandwichEvidence(transaction, market, surroundingTrades) {
   const target = {
@@ -17719,7 +17822,7 @@ function assessMarketSandwichEvidence(transaction, market, surroundingTrades) {
     target,
     ...later === void 0 ? [] : [surroundingObservation(later, market.matchedPair.pairAddress, 2)]
   ];
-  const neighborhoodComplete = earlier !== void 0 && later !== void 0 && earlier.chainStatus === "resolved" && later.chainStatus === "resolved" && (target.blockNumber !== void 0 && earlier.blockNumber !== void 0 && later.blockNumber !== void 0 || target.slot !== void 0 && earlier.slot !== void 0 && later.slot !== void 0);
+  const neighborhoodComplete = market.contextComplete === true && surroundingTrades.every((trade) => trade.chainStatus === "resolved") || earlier !== void 0 && later !== void 0 && earlier.chainStatus === "resolved" && later.chainStatus === "resolved" && (target.blockNumber !== void 0 && earlier.blockNumber !== void 0 && later.blockNumber !== void 0 || target.slot !== void 0 && earlier.slot !== void 0 && later.slot !== void 0);
   return assessXxyySandwichPattern({
     coverage: {
       actorAssetDeltas: "missing",
@@ -17785,8 +17888,11 @@ async function resolveSurroundingTrades(market, network, chainAnalysis, signal) 
   );
 }
 function buildSummary(transaction, marketStatus, screenshotReady) {
-  const match = marketStatus === "exact" ? "XXYY returned one exact trade match." : marketStatus === "conflict" ? "XXYY evidence conflicted with the normalized transaction." : "No exact XXYY trade match was available.";
+  const match = marketStatus === "exact" ? "XXYY returned one exact trade match." : marketStatus === "multi_exact" ? "XXYY returned multiple execution-leg matches and selected one pool for analysis." : marketStatus === "conflict" ? "XXYY evidence conflicted with the normalized transaction." : "No exact XXYY trade match was available.";
   return `${transaction.summary} ${match} Screenshot evidence is ${screenshotReady ? "ready" : "unavailable"}.`;
+}
+function hasSelectedMarketTrade(market) {
+  return (market?.status === "exact" || market?.status === "multi_exact") && market.matchedPair !== void 0 && market.trade !== void 0;
 }
 function unique2(values) {
   return [...new Set(values)];

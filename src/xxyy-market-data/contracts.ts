@@ -37,6 +37,25 @@ export const xxyyTradeLookupInputSchema = z
   .object({
     actor: identifierSchema.optional(),
     chain: z.string().trim().min(2).max(96),
+    executionPools: z
+      .array(
+        z
+          .object({
+            amount0Raw: z
+              .string()
+              .regex(/^-?(?:0|[1-9]\d*)$/u)
+              .optional(),
+            amount1Raw: z
+              .string()
+              .regex(/^-?(?:0|[1-9]\d*)$/u)
+              .optional(),
+            isPrimary: z.boolean().optional(),
+            poolIdentifier: identifierSchema,
+          })
+          .strict(),
+      )
+      .max(128)
+      .optional(),
     targetTokenAddresses: z.array(identifierSchema).min(1).max(8),
     timestampMs: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
     transactionAccountAddresses: z.array(identifierSchema).max(512).optional(),
@@ -66,16 +85,29 @@ export const xxyyMarketDiagnosticSchema = z
 export const xxyyTradeLookupResultSchema = z
   .object({
     candidatePairs: z.array(xxyyPairCandidateSchema).max(64),
+    contextComplete: z.boolean().optional(),
     contextTrades: z.array(xxyyContextTradeSchema).max(12).optional(),
     diagnostics: z.array(xxyyMarketDiagnosticSchema).max(100),
     matchedPair: xxyyPairCandidateSchema.optional(),
-    status: z.enum(['exact', 'conflict', 'not_found']),
+    matchedTrades: z
+      .array(
+        z
+          .object({
+            contextTrades: z.array(xxyyContextTradeSchema).max(12),
+            pair: xxyyPairCandidateSchema,
+            trade: xxyyMarketTradeSchema,
+          })
+          .strict(),
+      )
+      .max(128)
+      .optional(),
+    status: z.enum(['exact', 'multi_exact', 'conflict', 'not_found']),
     trade: xxyyMarketTradeSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
     if (
-      value.status === 'exact' &&
+      (value.status === 'exact' || value.status === 'multi_exact') &&
       (value.trade === undefined || value.matchedPair === undefined)
     ) {
       context.addIssue({
@@ -86,14 +118,23 @@ export const xxyyTradeLookupResultSchema = z
     }
     if (
       value.status !== 'exact' &&
+      value.status !== 'multi_exact' &&
       (value.trade !== undefined ||
         value.matchedPair !== undefined ||
+        value.contextComplete !== undefined ||
         (value.contextTrades?.length ?? 0) > 0)
     ) {
       context.addIssue({
         code: 'custom',
         message: 'Only an exact XXYY trade match may expose one selected trade and pair.',
         path: ['status'],
+      });
+    }
+    if (value.status === 'multi_exact' && (value.matchedTrades?.length ?? 0) < 2) {
+      context.addIssue({
+        code: 'custom',
+        message: 'A multi-pool XXYY match requires at least two matched trades.',
+        path: ['matchedTrades'],
       });
     }
     if (

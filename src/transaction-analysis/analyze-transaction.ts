@@ -715,12 +715,14 @@ function finalizeResult(
   const assetChanges = Array.from(state.assetChanges.entries())
     .filter(([, change]) => change.delta !== 0n)
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([, change]): TransactionAssetChange => ({
-      address: change.address,
-      asset: change.asset,
-      evidenceIds: Array.from(change.evidenceIds).sort(),
-      rawDelta: change.delta.toString(),
-    }));
+    .map(
+      ([, change]): TransactionAssetChange => ({
+        address: change.address,
+        asset: change.asset,
+        evidenceIds: Array.from(change.evidenceIds).sort(),
+        rawDelta: change.delta.toString(),
+      }),
+    );
 
   return transactionAnalysisResultSchema.parse({
     assetChanges,

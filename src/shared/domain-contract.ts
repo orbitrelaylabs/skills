@@ -16,7 +16,12 @@ export const skillResultStatuses = ['success', 'partial', 'insufficient_data', '
 export type EvidenceKind = (typeof evidenceKinds)[number];
 export type SkillResultStatus = (typeof skillResultStatuses)[number];
 export type JsonValue =
-  boolean | null | number | string | JsonValue[] | { [key: string]: JsonValue };
+  | boolean
+  | null
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
 
 export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([

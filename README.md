@@ -20,8 +20,8 @@ Orbit Relay Labs' collection of self-contained agent Skills. The repository curr
 ## Requirements
 
 - Node.js 24.16.0 or newer.
-- [ego lite](https://lite.ego.app/) with `ego-browser` available on `PATH`.
-- Chrome or Chromium for the XXYY diagnosis screenshot.
+- Chrome or Chromium with the host-provided `xxyy-chrome-driver` available on `PATH`.
+- An isolated persistent directory configured through `XXYY_BROWSER_PROFILE_DIRECTORY`.
 
 Explorer access is browser-only. The Skills do not accept RPC endpoints or arbitrary URLs and do not silently fall back to RPC.
 
@@ -49,10 +49,9 @@ Both commands write exactly one JSON object to stdout. Failures return `status: 
 
 The diagnosis Skill requires its verified screenshot by default. A host that cannot deliver image attachments may explicitly pass `--screenshot disabled`; the JSON then reports `screenshotEvidence.reason: "not_configured"` while preserving structured transaction, pool, and Sandwich evidence.
 
-The repository package is private and intentionally exposes no JavaScript imports. Its `bin` entries only provide a convenient GitHub-dependency bridge for existing hosts:
+The repository package is private and intentionally exposes no JavaScript imports. Its `bin` entries provide local CLI access for hosts that pin this repository as a dependency or submodule:
 
 ```bash
-pnpm add github:orbitrelaylabs/skills
 pnpm exec onchain-inspect --reference '<Explorer URL>'
 pnpm exec xxyy-diagnose --reference '<Explorer URL>' --checks sandwich,pool
 ```
@@ -80,7 +79,7 @@ XXYY_SCREENSHOT_DIRECTORY=/path/to/evidence
 XXYY_BROWSER_PROFILE_DIRECTORY=/path/to/isolated-profile
 ```
 
-Never point the screenshot browser at a personal daily-use Chrome profile.
+Never point the browser runtime at a personal daily-use Chrome profile.
 
 ## Development
 

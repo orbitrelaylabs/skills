@@ -46,6 +46,6 @@ describe('XXYY transaction diagnosis CLI', () => {
         argv: ['--', '--reference', '0x123', '--screenshot', 'disabled'],
         env: { PATH: '' },
       }),
-    ).rejects.toThrow('ego-browser');
+    ).rejects.toThrow('Chrome or Chromium');
   });
 });

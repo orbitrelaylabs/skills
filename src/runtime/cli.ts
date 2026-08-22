@@ -9,10 +9,10 @@ import { createXxyyMarketDataClient } from '../xxyy-market-data/index.js';
 
 import {
   createBrowserChainAnalysisClient,
-  createEgoBrowserPageEvaluator,
-  EgoBrowserUnavailableError,
+  createChromeBrowserPageEvaluator,
+  ExplorerBrowserUnavailableError,
   resolveBrowserChromeExecutable,
-  resolveEgoBrowserExecutable,
+  resolveExplorerBrowserDriverExecutable,
 } from './browser-chain-analysis-client.js';
 import { createConfiguredCanonicalPoolResolver } from './canonical-pool-config.js';
 import { createChromeXxyyScreenshotProvider } from './chrome-screenshot-provider.js';
@@ -33,8 +33,8 @@ export async function runXxyyTransactionDiagnosisCli(
   const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const parsed = parseCliArguments(argv);
-  const egoBrowserExecutable = await resolveEgoBrowserExecutable(env.PATH);
-  if (egoBrowserExecutable === undefined) throw new EgoBrowserUnavailableError();
+  const browserDriverExecutable = await resolveExplorerBrowserDriverExecutable(env.PATH);
+  if (browserDriverExecutable === undefined) throw new ExplorerBrowserUnavailableError();
   const stateDirectory = path.join(homedir(), '.xxyy');
   const profileDirectory = path.resolve(
     env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim() || path.join(stateDirectory, 'browser-profile'),
@@ -52,8 +52,8 @@ export async function runXxyyTransactionDiagnosisCli(
       ? undefined
       : await createCliScreenshotProvider({ artifactDirectory, env, profileDirectory });
   const chainAnalysis = createBrowserChainAnalysisClient({
-    pageEvaluator: createEgoBrowserPageEvaluator({
-      command: egoBrowserExecutable,
+    pageEvaluator: createChromeBrowserPageEvaluator({
+      command: browserDriverExecutable,
       taskName: 'xxyy-diagnosis-skill-explorer',
     }),
   });

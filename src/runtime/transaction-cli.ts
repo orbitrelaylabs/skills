@@ -6,9 +6,9 @@ import { pathToFileURL } from 'node:url';
 
 import {
   createBrowserChainAnalysisClient,
-  createEgoBrowserPageEvaluator,
-  EgoBrowserUnavailableError,
-  resolveEgoBrowserExecutable,
+  createChromeBrowserPageEvaluator,
+  ExplorerBrowserUnavailableError,
+  resolveExplorerBrowserDriverExecutable,
 } from './browser-chain-analysis-client.js';
 import { getTransactionInputSchema } from './public-transaction-contracts.js';
 
@@ -21,11 +21,11 @@ export async function runPublicTransactionCli(
   const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const parsed = parseArguments(argv);
-  const egoBrowserExecutable = await resolveEgoBrowserExecutable(env.PATH);
-  if (egoBrowserExecutable === undefined) throw new EgoBrowserUnavailableError();
+  const browserDriverExecutable = await resolveExplorerBrowserDriverExecutable(env.PATH);
+  if (browserDriverExecutable === undefined) throw new ExplorerBrowserUnavailableError();
   const client = createBrowserChainAnalysisClient({
-    pageEvaluator: createEgoBrowserPageEvaluator({
-      command: egoBrowserExecutable,
+    pageEvaluator: createChromeBrowserPageEvaluator({
+      command: browserDriverExecutable,
       taskName: 'xxyy-onchain-skill-explorer',
     }),
   });

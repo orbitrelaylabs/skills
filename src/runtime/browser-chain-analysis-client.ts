@@ -40,20 +40,18 @@ export class ExplorerBrowserVerificationError extends Error {
     super(
       host === undefined
         ? 'Explorer browser requires interactive verification.'
-        : `Explorer browser requires interactive verification for ${host}${taskName === undefined ? '' : ` in ego-browser task ${taskName}`}.`,
+        : `Explorer browser requires interactive verification for ${host}${taskName === undefined ? '' : ` in browser session ${taskName}`}.`,
     );
     this.name = 'ExplorerBrowserVerificationError';
   }
 }
 
-export class EgoBrowserUnavailableError extends Error {
-  readonly code = 'ego_browser_unavailable';
+export class ExplorerBrowserUnavailableError extends Error {
+  readonly code = 'explorer_browser_unavailable';
 
   constructor() {
-    super(
-      'ego-browser is required for public Explorer queries. Install ego lite from https://lite.ego.app/ and complete onboarding.',
-    );
-    this.name = 'EgoBrowserUnavailableError';
+    super('xxyy-chrome-driver with Chrome or Chromium is required for public Explorer queries.');
+    this.name = 'ExplorerBrowserUnavailableError';
   }
 }
 
@@ -155,7 +153,7 @@ export function createBrowserChainAnalysisClient(
   options: CreateBrowserChainAnalysisClientOptions,
 ): PublicTransactionClient {
   const timeoutMs = positiveInteger(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 'timeoutMs');
-  const pageEvaluator = options.pageEvaluator ?? createEgoBrowserPageEvaluator();
+  const pageEvaluator = options.pageEvaluator ?? createChromeBrowserPageEvaluator();
   let browserQueue: Promise<void> = Promise.resolve();
   return {
     async close() {},
@@ -241,13 +239,13 @@ export async function resolveBrowserChromeExecutable(
   return undefined;
 }
 
-export async function resolveEgoBrowserExecutable(
+export async function resolveExplorerBrowserDriverExecutable(
   pathValue: string | undefined = process.env.PATH,
 ): Promise<string | undefined> {
   if (pathValue === undefined || pathValue.trim().length === 0) return undefined;
   for (const directory of pathValue.split(path.delimiter)) {
     if (directory.length === 0) continue;
-    const candidate = path.join(directory, 'ego-browser');
+    const candidate = path.join(directory, 'xxyy-chrome-driver');
     try {
       await access(candidate);
       return candidate;
@@ -258,27 +256,27 @@ export async function resolveEgoBrowserExecutable(
   return undefined;
 }
 
-export function createEgoBrowserPageEvaluator(
+export function createChromeBrowserPageEvaluator(
   options: {
     command?: string;
     taskName?: string;
   } = {},
 ): BrowserPageEvaluator {
-  const command = options.command?.trim() || 'ego-browser';
+  const command = options.command?.trim() || 'xxyy-chrome-driver';
   const taskName = options.taskName?.trim() || 'xxyy-public-explorer';
   return async (input) => {
     try {
-      return await evaluateEgoBrowserPage(command, taskName, input);
+      return await evaluateChromeBrowserPage(command, taskName, input);
     } catch (error) {
       if (isRecord(error) && error.code === 'ENOENT') {
-        throw new EgoBrowserUnavailableError();
+        throw new ExplorerBrowserUnavailableError();
       }
       throw error;
     }
   };
 }
 
-async function evaluateEgoBrowserPage(
+async function evaluateChromeBrowserPage(
   command: string,
   taskName: string,
   input: Parameters<BrowserPageEvaluator>[0],
@@ -287,7 +285,7 @@ async function evaluateEgoBrowserPage(
     throw new TypeError('Browser page evaluation requires exactly one expression or fetchUrl.');
   }
   const nonce = randomUUID();
-  const marker = '__XXYY_EGO_RESULT_' + nonce + '__:';
+  const marker = '__XXYY_BROWSER_RESULT_' + nonce + '__:';
   const timeoutSeconds = Math.max(5, Math.ceil(input.timeoutMs / 1_000));
   const script = [
     'const task = await useOrCreateTaskSpace(' + JSON.stringify(taskName) + ')',
@@ -351,11 +349,11 @@ async function evaluateEgoBrowserPage(
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
       child.kill('SIGTERM');
-      reject(new Error('ego-browser page evaluation timed out.'));
+      reject(new Error('Chrome browser page evaluation timed out.'));
     }, input.timeoutMs + 10_000);
     const abort = () => {
       child.kill('SIGTERM');
-      reject(new Error('ego-browser page evaluation was aborted.'));
+      reject(new Error('Chrome browser page evaluation was aborted.'));
     };
     child.once('error', (error) => {
       clearTimeout(timeout);
@@ -366,11 +364,11 @@ async function evaluateEgoBrowserPage(
       clearTimeout(timeout);
       input.signal?.removeEventListener('abort', abort);
       if (outputBytes > maxOutputBytes) {
-        reject(new Error('ego-browser page evaluation output was too large.'));
+        reject(new Error('Chrome browser page evaluation output was too large.'));
       } else if (code === 0) {
         resolve();
       } else {
-        reject(new Error('ego-browser page evaluation failed.'));
+        reject(new Error('Chrome browser page evaluation failed.'));
       }
     });
     input.signal?.addEventListener('abort', abort, { once: true });
@@ -395,7 +393,7 @@ async function evaluateEgoBrowserPage(
     chunks.length !== expectedChunks ||
     chunks.some((chunk, index) => chunk.index !== index || chunk.total !== expectedChunks)
   ) {
-    throw new Error('ego-browser page evaluation omitted its result.');
+    throw new Error('Chrome browser page evaluation omitted its result.');
   }
   const payloadText = chunks.map((chunk) => chunk.value).join('');
   const payload = JSON.parse(payloadText) as unknown;
@@ -403,7 +401,7 @@ async function evaluateEgoBrowserPage(
     throw new ExplorerBrowserVerificationError(new URL(input.url).hostname, taskName);
   }
   if (!isRecord(payload) || payload.ok !== true || !('value' in payload)) {
-    throw new Error('ego-browser page evaluation returned no evidence.');
+    throw new Error('Chrome browser page evaluation returned no evidence.');
   }
   return payload.value;
 }

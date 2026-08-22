@@ -15,7 +15,7 @@ import {
 } from './contracts.js';
 import { XxyyMarketDataError } from './errors.js';
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576;
 const TRADE_WINDOW_MS = 120_000;
 const TRADE_SEARCH_WINDOWS_MS = [2_000, 15_000, TRADE_WINDOW_MS] as const;

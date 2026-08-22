@@ -16,6 +16,6 @@ describe('public transaction Skill CLI', () => {
         argv: ['--', '--reference', '0x123'],
         env: { PATH: '' },
       }),
-    ).rejects.toThrow('ego-browser');
+    ).rejects.toThrow('Chrome or Chromium');
   });
 });

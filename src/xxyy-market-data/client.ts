@@ -318,7 +318,7 @@ async function loadMatchingTrades(input: {
       for (const windowMs of windows) {
         const response = tradeSearchResponseSchema.parse(
           await requestJson({
-            body: tradeSearchBody(pair.pairAddress, timestamp, windowMs),
+            body: tradeSearchBody(pair.pairAddress, input.input.actor, timestamp, windowMs),
             fetchImpl: input.fetchImpl,
             headers: xxyyHeaders(input.input.chain),
             maxResponseBytes: input.maxResponseBytes,
@@ -506,11 +506,12 @@ async function requestJson(input: {
 
 function tradeSearchBody(
   pairAddress: string,
+  makerAddress: string | undefined,
   timestamp: number | undefined,
   windowMs: number | undefined,
 ): Record<string, unknown> {
   return {
-    makerAddress: '',
+    makerAddress: makerAddress ?? '',
     nativeAmountEnd: '',
     nativeAmountStart: '',
     pageSize: TRADE_SEARCH_PAGE_SIZE,

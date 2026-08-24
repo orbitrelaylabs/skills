@@ -15197,7 +15197,7 @@ async function loadMatchingTrades(input) {
       for (const windowMs of windows) {
         const response = tradeSearchResponseSchema.parse(
           await requestJson({
-            body: tradeSearchBody(pair.pairAddress, timestamp, windowMs),
+            body: tradeSearchBody(pair.pairAddress, input.input.actor, timestamp, windowMs),
             fetchImpl: input.fetchImpl,
             headers: xxyyHeaders(input.input.chain),
             maxResponseBytes: input.maxResponseBytes,
@@ -15341,9 +15341,9 @@ async function requestJson(input) {
     input.signal?.removeEventListener("abort", abort);
   }
 }
-function tradeSearchBody(pairAddress, timestamp, windowMs) {
+function tradeSearchBody(pairAddress, makerAddress, timestamp, windowMs) {
   return {
-    makerAddress: "",
+    makerAddress: makerAddress ?? "",
     nativeAmountEnd: "",
     nativeAmountStart: "",
     pageSize: TRADE_SEARCH_PAGE_SIZE,
@@ -16044,11 +16044,11 @@ var SOLSCAN_ORIGIN = "https://solscan.io";
 var SOLSCAN_API_ORIGIN = "https://api-v2.solscan.io";
 var BLOCKSCOUT_ORIGINS = {
   "eip155:1": "https://eth.blockscout.com",
-  "eip155:8453": "https://base.blockscout.com",
   "eip155:4663": "https://robinhoodchain.blockscout.com"
 };
 var SCAN_ORIGINS = {
   "eip155:56": "https://bscscan.com",
+  "eip155:8453": "https://basescan.org",
   "eip155:988": "https://stablescan.xyz"
 };
 var ExplorerBrowserVerificationError = class extends Error {

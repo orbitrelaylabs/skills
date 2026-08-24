@@ -99,7 +99,9 @@ describe('XXYY market data adapter', () => {
     const tradeRequest = fetchImpl.mock.calls.find(([url]) =>
       String(url).includes('/api/data/trades/search'),
     );
-    expect(JSON.parse(String(tradeRequest?.[1]?.body))).toMatchObject({ makerAddress: '' });
+    expect(JSON.parse(String(tradeRequest?.[1]?.body))).toMatchObject({
+      makerAddress: 'full-maker-address',
+    });
     expect(tradeRequest?.[1]?.headers).toMatchObject({
       'x-chain': 'sol',
       'x-language': 'zh',

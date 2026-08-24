@@ -251,9 +251,12 @@ describe('browser chain analysis client', () => {
       'eip155:988',
     ]);
     expect(calls).toHaveLength(6);
-    expect(calls.filter((call) => call.fetchUrl !== undefined)).toHaveLength(3);
+    expect(calls.filter((call) => call.fetchUrl !== undefined)).toHaveLength(2);
     expect(calls[0]?.expression).toContain('api-v2.solscan.io');
-    expect(calls.filter((call) => call.expression !== undefined)).toHaveLength(3);
+    expect(calls.filter((call) => call.expression !== undefined)).toHaveLength(4);
+    expect(calls.find((call) => call.url.includes('basescan.org'))?.expression).toContain(
+      'eventLogRows',
+    );
   });
 
   it('returns insufficient data when Solscan cannot locate the transaction', async () => {

@@ -25,11 +25,11 @@ const SOLSCAN_ORIGIN = 'https://solscan.io';
 const SOLSCAN_API_ORIGIN = 'https://api-v2.solscan.io';
 const BLOCKSCOUT_ORIGINS: Readonly<Record<string, string>> = {
   'eip155:1': 'https://eth.blockscout.com',
-  'eip155:8453': 'https://base.blockscout.com',
   'eip155:4663': 'https://robinhoodchain.blockscout.com',
 };
 const SCAN_ORIGINS: Readonly<Record<string, string>> = {
   'eip155:56': 'https://bscscan.com',
+  'eip155:8453': 'https://basescan.org',
   'eip155:988': 'https://stablescan.xyz',
 };
 

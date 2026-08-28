@@ -1,6 +1,6 @@
 interface:
   display_name: 'XXYY Transaction Diagnosis'
-  short_description: 'Multi-chain Chrome diagnosis with native evidence'
+  short_description: 'Browser-only diagnosis with native XXYY evidence'
   default_prompt: 'Use $xxyy-transaction-diagnosis to check this public transaction for Sandwich evidence and pool selection with browser-only evidence.'
 policy:
   allow_implicit_invocation: false
